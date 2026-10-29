@@ -52,7 +52,7 @@ jobs:
           fi
           name="qbittui-${version}-${TARGET}"
           mkdir -p "dist/$name"
-          cp "target/$TARGET/release/qbittui" README.md "dist/$name/"
+          cp "target/$TARGET/release/qbittui" README.md LICENSE "dist/$name/"
           tar -C dist -czf "dist/$name.tar.gz" "$name"
           (cd dist && sha256sum "$name.tar.gz" > "$name.tar.gz.sha256")
 
