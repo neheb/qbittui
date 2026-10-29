@@ -73,3 +73,7 @@ Unknown keys are reported as errors, so typos don't go unnoticed.
 Click a category, tag, filter tab, or torrent to select it; right-click a torrent to mark it; the wheel scrolls
 whichever pane it is over. Mouse capture disables the terminal's own text selection (most terminals bypass it
 with Shift+drag); run with `--no-mouse` to turn it off.
+
+## License
+
+GPL-3.0-or-later. See [LICENSE](LICENSE).

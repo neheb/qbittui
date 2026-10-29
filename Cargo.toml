@@ -3,6 +3,7 @@ name = "qbittui"
 version = "0.1.0"
 edition = "2024"
 description = "A terminal UI for qBittorrent"
+license = "GPL-3.0-or-later"
 repository = "https://github.com/neheb/qbittui"
 readme = "README.md"
 keywords = ["qbittorrent", "torrent", "tui", "terminal"]
