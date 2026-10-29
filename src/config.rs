@@ -15,6 +15,10 @@ pub struct Config {
     pub interval: Option<f64>,
     pub torrent_dir: Option<String>,
     pub mouse: Option<bool>,
+    /// PEM file with a certificate to trust (e.g. a self-signed WebUI certificate).
+    pub ca_cert: Option<String>,
+    /// Accept any HTTPS certificate. Exposes the password to anyone who can intercept the connection.
+    pub insecure: Option<bool>,
 }
 
 /// `$XDG_CONFIG_HOME/qbittui/config.toml`, falling back to `~/.config/qbittui/config.toml`.

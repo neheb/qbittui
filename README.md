@@ -30,9 +30,21 @@ password_command = "pass show qbittorrent"   # stdout of this shell command is t
 interval = 2                                 # refresh, seconds
 torrent_dir = "~/Downloads/"                 # where the add dialog starts
 mouse = true
+ca_cert = "~/.config/qbittui/webui.pem"     # trust this certificate (see HTTPS below)
+insecure = false                             # true skips certificate checks entirely
 ```
 
 Unknown keys are reported as errors, so typos don't go unnoticed.
+
+## HTTPS
+
+Certificates are checked against the system's trusted roots. For qBittorrent's WebUI with a self-signed
+certificate, point `ca_cert` (or `--ca-cert`, `QBT_CA_CERT`) at that certificate in PEM form, the same file
+configured under Tools → Options → Web UI. The server must present exactly that certificate, or one signed by
+it if it's your own CA, so the connection stays verified.
+
+`insecure = true` (or `--insecure`) accepts any certificate. Anyone able to intercept the connection could then
+read the WebUI password, so prefer `ca_cert`.
 
 ## Adding torrents
 

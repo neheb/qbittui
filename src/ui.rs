@@ -79,7 +79,9 @@ fn draw_sidebar(f: &mut Frame, app: &mut App, area: Rect) {
         cat_h
     } else {
         let share = (area.height as u32 * cat_h as u32 / (cat_h + tag_h) as u32) as u16;
-        share.clamp(5.min(area.height), area.height.saturating_sub(5))
+        // At least 5 rows each, or half the height when even that doesn't fit.
+        let min = 5.min(area.height / 2);
+        share.clamp(min, area.height - min)
     };
     let [cats, tags] = Layout::vertical([Constraint::Length(cat_h), Constraint::Fill(1)]).areas(area);
     app.hit.sidebar = cats;

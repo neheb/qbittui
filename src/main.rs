@@ -1,6 +1,7 @@
 mod api;
 mod app;
 mod config;
+mod tls;
 mod ui;
 mod worker;
 
@@ -38,6 +39,12 @@ struct Args {
     /// Disable mouse support (keeps the terminal's own text selection)
     #[arg(long)]
     no_mouse: bool,
+    /// Trust this PEM certificate, e.g. qBittorrent's self-signed WebUI certificate
+    #[arg(long, env = "QBT_CA_CERT")]
+    ca_cert: Option<String>,
+    /// Don't verify the HTTPS certificate at all (exposes the password to interception)
+    #[arg(long)]
+    insecure: bool,
     /// Config file path
     #[arg(short, long, env = "QBITTUI_CONFIG")]
     config: Option<PathBuf>,
@@ -64,7 +71,11 @@ fn main() -> Result<()> {
     let torrent_dir = args.torrent_dir.or(cfg.torrent_dir).unwrap_or_else(|| "~/Downloads/".into());
     let mouse = !args.no_mouse && cfg.mouse.unwrap_or(true);
 
-    let client = api::Client::new(&url, &username, &password)?;
+    let tls = api::Tls {
+        ca_cert: args.ca_cert.or(cfg.ca_cert).map(|p| PathBuf::from(app::expand_tilde(&p))),
+        insecure: args.insecure || cfg.insecure.unwrap_or(false),
+    };
+    let client = api::Client::new(&url, &username, &password, &tls)?;
     let interval = Duration::from_secs_f64(interval.max(0.25));
 
     let (cmd_tx, cmd_rx) = mpsc::channel();

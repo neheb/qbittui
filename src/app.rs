@@ -1014,7 +1014,7 @@ impl App {
     }
 }
 
-fn expand_tilde(s: &str) -> String {
+pub fn expand_tilde(s: &str) -> String {
     match (s.strip_prefix("~/"), std::env::var("HOME")) {
         (Some(rest), Ok(home)) => format!("{home}/{rest}"),
         _ => s.to_string(),

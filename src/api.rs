@@ -74,6 +74,15 @@ pub struct NewTorrent {
     pub save_path: String,
 }
 
+/// How to verify the server's HTTPS certificate.
+#[derive(Default)]
+pub struct Tls {
+    /// Extra PEM certificate(s) to trust, e.g. qBittorrent's self-signed WebUI certificate.
+    pub ca_cert: Option<std::path::PathBuf>,
+    /// Skip certificate verification entirely.
+    pub insecure: bool,
+}
+
 pub struct Client {
     http: Http,
     base: String,
@@ -84,11 +93,14 @@ pub struct Client {
 }
 
 impl Client {
-    pub fn new(base: &str, username: &str, password: &str) -> Result<Self> {
-        let http = Http::builder()
-            .cookie_store(true)
-            .timeout(Duration::from_secs(10))
-            .build()?;
+    pub fn new(base: &str, username: &str, password: &str, tls: &Tls) -> Result<Self> {
+        let mut builder = Http::builder().cookie_store(true).timeout(Duration::from_secs(10));
+        if tls.insecure {
+            builder = builder.danger_accept_invalid_certs(true);
+        } else if let Some(path) = &tls.ca_cert {
+            builder = builder.tls_backend_preconfigured(crate::tls::config_trusting(path)?);
+        }
+        let http = builder.build().context("setting up the HTTP client")?;
         Ok(Self {
             http,
             base: base.trim_end_matches('/').to_string(),
