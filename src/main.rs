@@ -17,7 +17,8 @@ use std::time::Duration;
 /// A terminal UI for qBittorrent's WebUI.
 ///
 /// Settings come from flags, then environment variables, then the config file
-/// (~/.config/qbittui/config.toml), then built-in defaults.
+/// (~/.config/qbittui/config.toml, or %APPDATA%\qbittui\config.toml on Windows), then
+/// built-in defaults.
 #[derive(Parser)]
 #[command(version)]
 struct Args {
@@ -85,9 +86,10 @@ fn main() -> Result<()> {
 
     let mut app = app::App::new(url, torrent_dir, cmd_tx);
     let mut terminal = ratatui::init();
-    crossterm::execute!(std::io::stdout(), EnableBracketedPaste)?;
+    // Optional extras: older Windows consoles reject them, which shouldn't stop the UI.
+    let _ = crossterm::execute!(std::io::stdout(), EnableBracketedPaste);
     if mouse {
-        crossterm::execute!(std::io::stdout(), EnableMouseCapture)?;
+        let _ = crossterm::execute!(std::io::stdout(), EnableMouseCapture);
     }
     let result = (|| -> Result<()> {
         while !app.quit {

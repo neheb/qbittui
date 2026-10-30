@@ -9,6 +9,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{
     Block, BorderType, Borders, Cell, Clear, List, ListItem, ListState, Paragraph, Row, Table, Tabs, Wrap,
 };
+use std::path::is_separator;
 use std::time::Duration;
 
 const ACCENT: Color = Color::Cyan;
@@ -488,8 +489,9 @@ fn completion_line(form: &AddForm, width: usize) -> Line<'static> {
     let mut spans = vec![Span::raw(" ".repeat(12))];
     let mut used = 0;
     for (i, c) in form.completions.iter().enumerate() {
-        let name = c.trim_end_matches('/').rsplit('/').next().unwrap_or(c);
-        let name = if c.ends_with('/') { format!("{name}/") } else { name.to_string() };
+        // Last path component, keeping a directory's trailing separator.
+        let start = c.trim_end_matches(is_separator).rfind(is_separator).map_or(0, |i| i + 1);
+        let name = c[start..].to_string();
         if used + name.chars().count() + 2 > width {
             spans.push(Span::raw(format!("+{}", form.completions.len() - i)).dim());
             break;

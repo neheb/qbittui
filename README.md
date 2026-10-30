@@ -4,7 +4,7 @@ A terminal UI for qBittorrent, talking to its WebUI API (works with qBittorrent 
 
 ## Install
 
-Static Linux binaries for amd64, arm64, armv7 and armv6 are attached to each
+Static Linux binaries for amd64, arm64, armv7 and armv6, and a Windows x86_64 build, are attached to each
 [GitHub release](https://github.com/neheb/qbittui/releases). Or build from source with `cargo install --path .`.
 
 ## Usage
@@ -19,14 +19,15 @@ Or via environment: `QBT_URL`, `QBT_USERNAME`, `QBT_PASSWORD`. `--interval` sets
 
 ## Config file
 
-Settings can also live in `~/.config/qbittui/config.toml` (respects `$XDG_CONFIG_HOME`; use `--config` or
-`QBITTUI_CONFIG` for another path). Flags and environment variables take precedence over it. Every key is optional:
+Settings can also live in `~/.config/qbittui/config.toml` (respects `$XDG_CONFIG_HOME`; on Windows
+`%APPDATA%\qbittui\config.toml`; use `--config` or `QBITTUI_CONFIG` for another path). Flags and environment
+variables take precedence over it. Every key is optional:
 
 ```toml
 url = "http://localhost:8080"
 username = "admin"
 password = "secret"                          # or, to keep it out of the file:
-password_command = "pass show qbittorrent"   # stdout of this shell command is the password
+password_command = "pass show qbittorrent"   # stdout of this shell command (cmd on Windows) is the password
 interval = 2                                 # refresh, seconds
 torrent_dir = "~/Downloads/"                 # where the add dialog starts
 mouse = true

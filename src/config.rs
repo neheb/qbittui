@@ -3,6 +3,7 @@
 use anyhow::{Context, Result, bail};
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 #[derive(Debug, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -21,12 +22,13 @@ pub struct Config {
     pub insecure: Option<bool>,
 }
 
-/// `$XDG_CONFIG_HOME/qbittui/config.toml`, falling back to `~/.config/qbittui/config.toml`.
+/// `$XDG_CONFIG_HOME/qbittui/config.toml`, else `%APPDATA%\qbittui\config.toml` on Windows,
+/// else `~/.config/qbittui/config.toml`.
 pub fn default_path() -> Option<PathBuf> {
-    let base = std::env::var_os("XDG_CONFIG_HOME")
-        .filter(|v| !v.is_empty())
-        .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))?;
+    let var = |name: &str| std::env::var_os(name).filter(|v| !v.is_empty()).map(PathBuf::from);
+    let base = var("XDG_CONFIG_HOME")
+        .or_else(|| if cfg!(windows) { var("APPDATA") } else { None })
+        .or_else(|| std::env::home_dir().map(|h| h.join(".config")))?;
     Some(base.join("qbittui").join("config.toml"))
 }
 
@@ -39,10 +41,26 @@ pub fn load(path: &Path, explicit: bool) -> Result<Config> {
     }
 }
 
+/// `cmd` run by the platform's shell: `sh -c` or `cmd /C`.
+fn shell(cmd: &str) -> Command {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        let mut c = Command::new("cmd");
+        // cmd parses its own command line; Rust's argument quoting would mangle it.
+        c.arg("/C").raw_arg(cmd);
+        c
+    }
+    #[cfg(not(windows))]
+    {
+        let mut c = Command::new("sh");
+        c.arg("-c").arg(cmd);
+        c
+    }
+}
+
 pub fn run_password_command(cmd: &str) -> Result<String> {
-    let out = std::process::Command::new("sh")
-        .arg("-c")
-        .arg(cmd)
+    let out = shell(cmd)
         .stderr(std::process::Stdio::inherit())
         .output()
         .with_context(|| format!("running password_command `{cmd}`"))?;

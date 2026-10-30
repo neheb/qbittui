@@ -205,12 +205,12 @@ impl AddForm {
 }
 
 fn looks_like_path(s: &str) -> bool {
-    s.starts_with('/') || s.starts_with('~') || s.starts_with('.')
+    s.starts_with(['.', '~']) || std::path::Path::new(s).has_root()
 }
 
 /// Directories and .torrent files matching `input`, written the way the user typed them (`~` kept).
 fn path_completions(input: &str) -> Vec<String> {
-    let (dir, prefix) = match input.rfind('/') {
+    let (dir, prefix) = match input.rfind(std::path::is_separator) {
         Some(i) => input.split_at(i + 1),
         None => ("", input),
     };
@@ -226,7 +226,7 @@ fn path_completions(input: &str) -> Vec<String> {
             // Follow symlinks so linked directories complete as directories.
             let is_dir = std::fs::metadata(e.path()).is_ok_and(|m| m.is_dir());
             if is_dir {
-                Some(format!("{dir}{name}/"))
+                Some(format!("{dir}{name}{}", std::path::MAIN_SEPARATOR))
             } else if name.to_lowercase().ends_with(".torrent") {
                 Some(format!("{dir}{name}"))
             } else {
@@ -732,16 +732,18 @@ impl App {
     /// web UI: the category's path under Automatic Torrent Management, else the default path.
     pub fn effective_save_path(&self, category: Option<&str>) -> Option<(String, &'static str)> {
         let prefs = self.prefs.as_ref()?;
-        let default = prefs.save_path.trim_end_matches('/');
+        // The server may run on Windows: keep its separator and recognize drive and UNC paths.
+        let sep = if prefs.save_path.contains('\\') { '\\' } else { '/' };
+        let default = prefs.save_path.trim_end_matches(['/', '\\']);
         match category {
             Some(cat) if prefs.auto_tmm_enabled => {
                 let own = self.category_paths.get(cat).map(String::as_str).unwrap_or("");
-                let path = if own.starts_with('/') {
+                let path = if own.starts_with(['/', '\\']) || own.as_bytes().get(1) == Some(&b':') {
                     own.to_string()
                 } else if own.is_empty() {
-                    format!("{default}/{cat}")
+                    format!("{default}{sep}{cat}")
                 } else {
-                    format!("{default}/{own}")
+                    format!("{default}{sep}{own}")
                 };
                 Some((path, "category"))
             }
@@ -756,8 +758,8 @@ impl App {
             _ => None,
         };
         let mut dir = self.torrent_dir.clone();
-        if !dir.is_empty() && !dir.ends_with('/') {
-            dir.push('/');
+        if !dir.is_empty() && !dir.ends_with(std::path::is_separator) {
+            dir.push(std::path::MAIN_SEPARATOR);
         }
         self.mode = Mode::Add(AddForm {
             source: dir.clone(),
@@ -1198,9 +1200,12 @@ impl App {
     }
 }
 
+/// Expand a leading `~`, alone or before a path separator, to the home directory.
 pub fn expand_tilde(s: &str) -> String {
-    match (s.strip_prefix("~/"), std::env::var("HOME")) {
-        (Some(rest), Ok(home)) => format!("{home}/{rest}"),
+    let Some(rest) = s.strip_prefix('~') else { return s.to_string() };
+    match (rest.chars().next(), std::env::home_dir()) {
+        (None, Some(home)) => home.display().to_string(),
+        (Some(c), Some(home)) if std::path::is_separator(c) => format!("{}{rest}", home.display()),
         _ => s.to_string(),
     }
 }

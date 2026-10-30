@@ -1,6 +1,6 @@
 name: Release
 
-# Builds static (musl) Linux binaries for each target below.
+# Builds static (musl) Linux binaries and a Windows binary for each target below.
 # Pushing a `vX.Y.Z` tag publishes them as a GitHub release; running the
 # workflow by hand only builds them and keeps the archives as workflow artifacts.
 
@@ -24,6 +24,7 @@ jobs:
           - aarch64-unknown-linux-musl      # arm64
           - armv7-unknown-linux-musleabihf  # armv7 (hard float)
           - arm-unknown-linux-musleabihf    # armv6 (Raspberry Pi Zero/1)
+          - x86_64-pc-windows-gnu           # Windows x86_64
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -52,15 +53,24 @@ jobs:
           fi
           name="qbittui-${version}-${TARGET}"
           mkdir -p "dist/$name"
-          cp "target/$TARGET/release/qbittui" README.md LICENSE "dist/$name/"
-          tar -C dist -czf "dist/$name.tar.gz" "$name"
-          (cd dist && sha256sum "$name.tar.gz" > "$name.tar.gz.sha256")
+          if [[ "$TARGET" == *windows* ]]; then
+            cp "target/$TARGET/release/qbittui.exe" README.md LICENSE "dist/$name/"
+            archive="$name.zip"
+            (cd dist && zip -qr "$archive" "$name")
+          else
+            cp "target/$TARGET/release/qbittui" README.md LICENSE "dist/$name/"
+            archive="$name.tar.gz"
+            tar -C dist -czf "dist/$archive" "$name"
+          fi
+          (cd dist && sha256sum "$archive" > "$archive.sha256")
 
       - name: Upload archive
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.target }}
-          path: dist/*.tar.gz*
+          path: |
+            dist/*.tar.gz*
+            dist/*.zip*
           if-no-files-found: error
 
   release:
