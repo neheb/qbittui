@@ -1,6 +1,6 @@
 //! Background thread that owns the HTTP client so the UI never blocks on the network.
 
-use crate::api::{CategoryInfo, Client, NewTorrent, Prefs, Torrent, Transfer};
+use crate::api::{CategoryInfo, Client, NewTorrent, Prefs, Torrent, TorrentFile, Transfer};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender};
 use std::time::Duration;
 
@@ -18,18 +18,25 @@ pub enum Cmd {
     SetCategory(Vec<String>, String, bool),
     /// Hashes, tag, and whether to add (true) or remove it.
     Tag(Vec<String>, String, bool),
+    /// Also poll this torrent's file list on every refresh (None stops).
+    Files(Option<String>),
+    /// Torrent hash, file indices, and priority (0 = don't download).
+    FilePrio(String, Vec<usize>, i64),
 }
 
 pub enum Msg {
     /// Torrents, transfer stats, categories, tag names.
     Data(Vec<Torrent>, Transfer, Vec<CategoryInfo>, Vec<String>),
     Prefs(Prefs),
+    /// Torrent hash and its files.
+    Files(String, Vec<TorrentFile>),
     Info(String),
     Error(String),
 }
 
 pub fn run(mut client: Client, interval: Duration, rx: Receiver<Cmd>, tx: Sender<Msg>) {
     let mut logged_in = false;
+    let mut files_hash: Option<String> = None;
     loop {
         let cmd = match rx.recv_timeout(interval) {
             Ok(cmd) => Some(cmd),
@@ -84,6 +91,11 @@ pub fn run(mut client: Client, interval: Duration, rx: Receiver<Cmd>, tx: Sender
                 Cmd::Tag(h, tag, false) => {
                     client.remove_tag(&h, &tag).map(|_| Some(format!("Removed tag {tag} from {}", n(&h))))
                 }
+                Cmd::Files(h) => {
+                    files_hash = h;
+                    Ok(None)
+                }
+                Cmd::FilePrio(h, ids, prio) => client.file_prio(&h, &ids, prio).map(|_| None),
                 Cmd::Add(t) => client.add(&t).map(|_| Some("Torrent added".to_string())),
             };
             match result {
@@ -108,6 +120,16 @@ pub fn run(mut client: Client, interval: Duration, rx: Receiver<Cmd>, tx: Sender
             }
             Err(e) => {
                 let _ = tx.send(Msg::Error(format!("{e:#}")));
+            }
+        }
+        if let Some(h) = &files_hash {
+            match client.files(h) {
+                Ok(files) => {
+                    let _ = tx.send(Msg::Files(h.clone(), files));
+                }
+                Err(e) => {
+                    let _ = tx.send(Msg::Error(format!("{e:#}")));
+                }
             }
         }
     }

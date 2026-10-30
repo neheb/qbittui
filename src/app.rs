@@ -1,4 +1,4 @@
-use crate::api::{CategoryInfo, NewTorrent, Prefs, Torrent, Transfer};
+use crate::api::{CategoryInfo, NewTorrent, Prefs, Torrent, TorrentFile, Transfer};
 use crate::worker::{Cmd, Msg};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::layout::{Position, Rect};
@@ -299,6 +299,82 @@ impl TagPicker {
     }
 }
 
+/// File list of one torrent, refreshed by the worker while open.
+pub struct FilesView {
+    pub hash: String,
+    pub name: String,
+    /// None until the first response arrives. A file's position is its index for the API.
+    pub files: Option<Vec<TorrentFile>>,
+    /// Folder paths (without trailing '/') the user has folded.
+    pub collapsed: HashSet<String>,
+    pub table: TableState,
+}
+
+/// A visible line of the file tree. `files` holds the indices of every file a folder contains.
+pub enum FileRow {
+    Folder { path: String, name: String, depth: usize, open: bool, files: Vec<usize> },
+    File { idx: usize, name: String, depth: usize },
+}
+
+impl FileRow {
+    pub fn depth(&self) -> usize {
+        match self {
+            FileRow::Folder { depth, .. } | FileRow::File { depth, .. } => *depth,
+        }
+    }
+
+    pub fn files(&self) -> Vec<usize> {
+        match self {
+            FileRow::Folder { files, .. } => files.clone(),
+            FileRow::File { idx, .. } => vec![*idx],
+        }
+    }
+}
+
+/// qBittorrent's file priorities, lowest first.
+pub const FILE_PRIORITIES: [i64; 4] = [0, 1, 6, 7];
+
+impl FilesView {
+    /// The file tree flattened for display: folders first, then files, each sorted by name.
+    pub fn rows(&self) -> Vec<FileRow> {
+        let mut out = Vec::new();
+        if let Some(files) = &self.files {
+            let items = files.iter().enumerate().map(|(i, f)| (i, f.name.as_str())).collect();
+            self.walk(items, "", 0, &mut out);
+        }
+        out
+    }
+
+    fn walk(&self, items: Vec<(usize, &str)>, prefix: &str, depth: usize, out: &mut Vec<FileRow>) {
+        let mut folders: std::collections::BTreeMap<&str, Vec<(usize, &str)>> = Default::default();
+        let mut files = Vec::new();
+        for (i, rest) in items {
+            match rest.split_once('/') {
+                Some((dir, tail)) => folders.entry(dir).or_default().push((i, tail)),
+                None => files.push((i, rest)),
+            }
+        }
+        for (name, children) in folders {
+            let path = format!("{prefix}{name}");
+            let open = !self.collapsed.contains(&path);
+            let ids = children.iter().map(|&(i, _)| i).collect();
+            out.push(FileRow::Folder { path: path.clone(), name: name.to_string(), depth, open, files: ids });
+            if open {
+                self.walk(children, &format!("{path}/"), depth + 1, out);
+            }
+        }
+        files.sort_by_key(|&(_, name)| name);
+        out.extend(files.into_iter().map(|(idx, name)| FileRow::File { idx, name: name.to_string(), depth }));
+    }
+
+    /// The shared priority of `ids`, or None if they differ.
+    pub fn priority(&self, ids: &[usize]) -> Option<i64> {
+        let files = self.files.as_ref()?;
+        let first = files.get(*ids.first()?)?.priority;
+        ids.iter().all(|&i| files[i].priority == first).then_some(first)
+    }
+}
+
 /// Tags on a torrent; the API joins them with ", ".
 pub fn torrent_tags(t: &Torrent) -> impl Iterator<Item = &str> {
     t.tags.split(',').map(str::trim).filter(|s| !s.is_empty())
@@ -311,6 +387,7 @@ pub enum Mode {
     Recategorize(Picker),
     Tag(TagPicker),
     ConfirmDelete,
+    Files(FilesView),
     Help,
 }
 
@@ -413,6 +490,16 @@ impl App {
                 let live: HashSet<&str> = self.torrents.iter().map(|t| t.hash.as_str()).collect();
                 self.marked.retain(|h| live.contains(h.as_str()));
                 self.rebuild_view();
+            }
+            Msg::Files(hash, files) => {
+                if let Mode::Files(v) = &mut self.mode
+                    && v.hash == hash
+                {
+                    v.files = Some(files);
+                    let len = v.rows().len();
+                    let i = v.table.selected().unwrap_or(0).min(len.saturating_sub(1));
+                    v.table.select((len > 0).then_some(i));
+                }
             }
             Msg::Info(s) => self.set_status(s, false),
             Msg::Error(s) => {
@@ -531,6 +618,12 @@ impl App {
                 }
                 return;
             }
+            Mode::Files(_) => {
+                if let MouseEventKind::ScrollDown | MouseEventKind::ScrollUp = ev.kind {
+                    self.files_move(if ev.kind == MouseEventKind::ScrollDown { 3 } else { -3 });
+                }
+                return;
+            }
             Mode::Add(_) | Mode::Recategorize(_) | Mode::Tag(_) | Mode::ConfirmDelete => return,
         }
 
@@ -621,6 +714,7 @@ impl App {
             Mode::Add(_) => self.add_key(key),
             Mode::Recategorize(_) => self.picker_key(key),
             Mode::Tag(_) => self.tag_key(key),
+            Mode::Files(_) => self.files_key(key),
             Mode::ConfirmDelete => {
                 let targets = self.targets();
                 match key.code {
@@ -932,6 +1026,95 @@ impl App {
         self.mode = Mode::Tag(p);
     }
 
+    fn open_files(&mut self) {
+        let Some(t) = self.selected() else { return };
+        let (hash, name) = (t.hash.clone(), t.name.clone());
+        self.send(Cmd::Files(Some(hash.clone())));
+        self.mode = Mode::Files(FilesView {
+            hash,
+            name,
+            files: None,
+            collapsed: HashSet::new(),
+            table: TableState::default(),
+        });
+    }
+
+    fn files_move(&mut self, delta: isize) {
+        let Mode::Files(v) = &mut self.mode else { return };
+        let len = v.rows().len();
+        if len == 0 {
+            return;
+        }
+        let cur = v.table.selected().unwrap_or(0) as isize;
+        v.table.select(Some((cur + delta).clamp(0, len as isize - 1) as usize));
+    }
+
+    /// Apply a priority locally right away and send it to qBittorrent.
+    fn set_file_priority(&mut self, ids: Vec<usize>, priority: i64) {
+        let Mode::Files(v) = &mut self.mode else { return };
+        let Some(files) = &mut v.files else { return };
+        for &i in &ids {
+            files[i].priority = priority;
+        }
+        let hash = v.hash.clone();
+        self.send(Cmd::FilePrio(hash, ids, priority));
+    }
+
+    fn files_key(&mut self, key: KeyEvent) {
+        let Mode::Files(v) = &mut self.mode else { return };
+        let rows = v.rows();
+        let sel = v.table.selected().and_then(|i| rows.get(i).map(|r| (i, r)));
+        match key.code {
+            KeyCode::Esc | KeyCode::Char('q') => self.close_files(),
+            KeyCode::Right | KeyCode::Enter if matches!(sel, Some((_, FileRow::Folder { .. }))) => {
+                let Some((_, FileRow::Folder { path, open, .. })) = sel else { return };
+                if *open && key.code == KeyCode::Enter {
+                    v.collapsed.insert(path.clone());
+                } else {
+                    v.collapsed.remove(path);
+                }
+            }
+            // Fold the folder under the cursor, else step out to the parent folder, else close.
+            KeyCode::Left => match sel {
+                Some((_, FileRow::Folder { path, open: true, .. })) => {
+                    v.collapsed.insert(path.clone());
+                }
+                Some((i, row)) if row.depth() > 0 => {
+                    let parent = rows[..i].iter().rposition(|r| r.depth() < row.depth());
+                    v.table.select(parent);
+                }
+                _ => self.close_files(),
+            },
+            KeyCode::Char(' ') => {
+                let Some((_, row)) = sel else { return };
+                let ids = row.files();
+                let skipped = v.priority(&ids) == Some(0);
+                self.set_file_priority(ids, if skipped { 1 } else { 0 });
+            }
+            KeyCode::Char(c @ ('+' | '=' | '-')) => {
+                let Some((_, row)) = sel else { return };
+                let ids = row.files();
+                let files = v.files.as_ref().expect("rows imply files");
+                let current = ids.iter().map(|&i| files[i].priority).max().unwrap_or(1);
+                let level = FILE_PRIORITIES.iter().position(|&p| p >= current).unwrap_or(1);
+                let level = if c == '-' { level.saturating_sub(1) } else { (level + 1).min(FILE_PRIORITIES.len() - 1) };
+                self.set_file_priority(ids, FILE_PRIORITIES[level]);
+            }
+            KeyCode::Down | KeyCode::Char('j') => self.files_move(1),
+            KeyCode::Up | KeyCode::Char('k') => self.files_move(-1),
+            KeyCode::PageDown => self.files_move(self.page_size as isize),
+            KeyCode::PageUp => self.files_move(-(self.page_size as isize)),
+            KeyCode::Home | KeyCode::Char('g') => self.files_move(isize::MIN / 2),
+            KeyCode::End | KeyCode::Char('G') => self.files_move(isize::MAX / 2),
+            _ => {}
+        }
+    }
+
+    fn close_files(&mut self) {
+        self.send(Cmd::Files(None));
+        self.mode = Mode::Normal;
+    }
+
     fn normal_key(&mut self, key: KeyEvent) {
         match key.code {
             KeyCode::Char('q') => self.quit = true,
@@ -955,8 +1138,9 @@ impl App {
             KeyCode::PageUp => self.move_by(-(self.page_size as isize)),
             KeyCode::Home => self.select(0),
             KeyCode::End => self.select(usize::MAX),
-            KeyCode::Left | KeyCode::BackTab => self.cycle_filter(-1),
-            KeyCode::Right | KeyCode::Tab => self.cycle_filter(1),
+            KeyCode::BackTab => self.cycle_filter(-1),
+            KeyCode::Tab => self.cycle_filter(1),
+            KeyCode::Right => self.open_files(),
             KeyCode::Char(c @ '1'..='6') => {
                 self.filter = Filter::ALL[c as usize - '1' as usize];
                 self.rebuild_view();

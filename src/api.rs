@@ -67,6 +67,17 @@ pub struct Prefs {
     pub auto_tmm_enabled: bool,
 }
 
+/// One file inside a torrent, from `torrents/files`.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
+pub struct TorrentFile {
+    pub name: String,
+    pub size: i64,
+    pub progress: f64,
+    /// 0 = do not download, 1 = normal, 6 = high, 7 = maximal.
+    pub priority: i64,
+}
+
 /// A torrent to add: magnet link, URL or local .torrent file, plus where it goes.
 pub struct NewTorrent {
     pub source: String,
@@ -168,6 +179,20 @@ impl Client {
         let map: std::collections::BTreeMap<String, CategoryInfo> =
             self.request(|c| c.http.get(c.url("torrents/categories")))?.json()?;
         Ok(map.into_values().collect())
+    }
+
+    pub fn files(&mut self, hash: &str) -> Result<Vec<TorrentFile>> {
+        Ok(self.request(|c| c.http.get(c.url("torrents/files")).query(&[("hash", hash)]))?.json()?)
+    }
+
+    /// `ids` are file indices as listed by `files`; priority 0 skips the files.
+    pub fn file_prio(&mut self, hash: &str, ids: &[usize], priority: i64) -> Result<()> {
+        let ids = ids.iter().map(usize::to_string).collect::<Vec<_>>().join("|");
+        let priority = priority.to_string();
+        self.request(|c| {
+            c.http.post(c.url("torrents/filePrio")).form(&[("hash", hash), ("id", &ids), ("priority", &priority)])
+        })?;
+        Ok(())
     }
 
     pub fn preferences(&mut self) -> Result<Prefs> {

@@ -66,7 +66,8 @@ read the WebUI password, so prefer `ca_cert`.
 | `j`/`k` | next / previous category |
 | `J`/`K` | next / previous tag |
 | ↑/↓, PgUp/PgDn, Home/End | move in the torrent list |
-| ←/→, `tab`, `1`-`6` | state filter: all / downloading / seeding / paused / active / errored |
+| → | show the selected torrent's files: ↑/↓ or `j`/`k` move, `g`/`G` top/end, `space` download/skip, `+`/`-` priority, `enter` fold folder, ←/esc back |
+| `tab`, `1`-`6` | state filter: all / downloading / seeding / paused / active / errored |
 | `space` | mark torrent (actions apply to all marked) |
 | `p` | pause / resume |
 | `d` | delete (`y` keep data, `D` delete data) |

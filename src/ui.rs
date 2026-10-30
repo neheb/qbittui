@@ -1,4 +1,7 @@
-use crate::app::{AddField, AddForm, App, Category, Check, Filter, Mode, PickOption, Picker, TagFilter, TagPicker};
+use crate::app::{
+    AddField, AddForm, App, Category, Check, FileRow, FilesView, Filter, Mode, PickOption, Picker, TagFilter,
+    TagPicker,
+};
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style, Stylize};
@@ -29,6 +32,9 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     draw_details(f, app, details);
     draw_footer(f, app, footer);
 
+    if let Mode::Files(v) = &mut app.mode {
+        draw_files(f, v);
+    }
     match &app.mode {
         Mode::Help => draw_help(f),
         Mode::Add(form) => {
@@ -586,6 +592,68 @@ fn draw_tag_picker(f: &mut Frame, p: &TagPicker) {
     f.render_widget(Line::from("↑/↓ choose · enter/space toggle · esc done").dim().centered(), hint);
 }
 
+fn file_priority(p: i64) -> (&'static str, Color) {
+    match p {
+        0 => ("Skip", Color::DarkGray),
+        6 => ("High", Color::Yellow),
+        7 => ("Maximum", Color::Red),
+        _ => ("Normal", Color::Reset),
+    }
+}
+
+fn draw_files(f: &mut Frame, v: &mut FilesView) {
+    let full = f.area();
+    let area = centered(full, full.width.saturating_sub(8).max(60), full.height.saturating_sub(4));
+    f.render_widget(Clear, area);
+    let count = v.files.as_ref().map(|fs| format!(" ({})", fs.len())).unwrap_or_default();
+    let title = format!("{}{count}", v.name);
+    let block = popup(&title);
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+    let [list, hint] = Layout::vertical([Constraint::Min(1), Constraint::Length(1)]).areas(inner);
+    let hint_text = "↑/↓ j/k move · g/G top/end · space download/skip · +/- priority · enter fold · ←/esc back";
+    f.render_widget(Line::from(hint_text).dim().centered(), hint);
+
+    let Some(files) = &v.files else {
+        let mid = Rect { y: list.y + list.height / 2, height: 1, ..list };
+        f.render_widget(Line::from("Loading…").dim().centered(), mid);
+        return;
+    };
+    let header = Row::new(["Name", "Size", "Progress", "Priority"]).style(Style::new().fg(ACCENT).bold());
+    let rows: Vec<Row> = v
+        .rows()
+        .iter()
+        .map(|r| {
+            let ids = r.files();
+            let indent = "  ".repeat(r.depth());
+            let name = match r {
+                FileRow::Folder { name, open, .. } => {
+                    Line::from(format!("{indent}{} {name}/", if *open { "▾" } else { "▸" })).fg(ACCENT)
+                }
+                FileRow::File { name, .. } => Line::from(format!("{indent}  {name}")),
+            };
+            let size: i64 = ids.iter().map(|&i| files[i].size).sum();
+            let done: f64 = ids.iter().map(|&i| files[i].size as f64 * files[i].progress).sum();
+            let progress = if size > 0 { done / size as f64 } else { 1.0 };
+            let priority = v.priority(&ids);
+            let (prio, prio_color) = priority.map_or(("Mixed", Color::Reset), file_priority);
+            let row = Row::new(vec![
+                Cell::from(name),
+                Cell::from(bytes(size)),
+                Cell::from(progress_bar(progress, 9)).fg(if progress >= 1.0 { Color::Green } else { Color::Blue }),
+                Cell::from(prio).fg(prio_color),
+            ]);
+            if priority == Some(0) { row.dim() } else { row }
+        })
+        .collect();
+    let widths = [Constraint::Fill(1), Constraint::Length(10), Constraint::Length(15), Constraint::Length(8)];
+    let table = Table::new(rows, widths)
+        .header(header)
+        .column_spacing(1)
+        .row_highlight_style(Style::new().bg(Color::DarkGray).add_modifier(Modifier::BOLD));
+    f.render_stateful_widget(table, list, &mut v.table);
+}
+
 fn draw_confirm(f: &mut Frame, app: &App) {
     let names: Vec<String> = if app.marked.is_empty() {
         app.selected().map(|t| vec![t.name.clone()]).unwrap_or_default()
@@ -620,7 +688,8 @@ fn draw_help(f: &mut Frame) {
         ("J/K", "next / previous tag"),
         ("↑/↓", "move in torrent list"),
         ("PgUp/PgDn Home/End", "page / jump in list"),
-        ("←/→ tab 1-6", "switch state filter"),
+        ("→", "show files of torrent"),
+        ("tab 1-6", "switch state filter"),
         ("space", "mark / unmark torrent"),
         ("esc", "clear marks / search"),
         ("p", "pause / resume"),
