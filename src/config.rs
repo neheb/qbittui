@@ -25,7 +25,11 @@ pub struct Config {
 /// `$XDG_CONFIG_HOME/qbittui/config.toml`, else `%APPDATA%\qbittui\config.toml` on Windows,
 /// else `~/.config/qbittui/config.toml`.
 pub fn default_path() -> Option<PathBuf> {
-    let var = |name: &str| std::env::var_os(name).filter(|v| !v.is_empty()).map(PathBuf::from);
+    let var = |name: &str| {
+        std::env::var_os(name)
+            .filter(|v| !v.is_empty())
+            .map(PathBuf::from)
+    };
     let base = var("XDG_CONFIG_HOME")
         .or_else(|| if cfg!(windows) { var("APPDATA") } else { None })
         .or_else(|| std::env::home_dir().map(|h| h.join(".config")))?;

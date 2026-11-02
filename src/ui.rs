@@ -1,13 +1,14 @@
 use crate::app::{
-    AddField, AddForm, App, Category, Check, FileRow, FilesView, Filter, Mode, PickOption, Picker, TagFilter,
-    TagPicker,
+    AddField, AddForm, App, Category, Check, FileRow, FilesView, Filter, Mode, PickOption, Picker,
+    TagFilter, TagPicker,
 };
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style, Stylize};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{
-    Block, BorderType, Borders, Cell, Clear, List, ListItem, ListState, Paragraph, Row, Table, Tabs, Wrap,
+    Block, BorderType, Borders, Cell, Clear, List, ListItem, ListState, Paragraph, Row, Table,
+    Tabs, Wrap,
 };
 use std::path::is_separator;
 use std::time::Duration;
@@ -15,12 +16,21 @@ use std::time::Duration;
 const ACCENT: Color = Color::Cyan;
 
 pub fn draw(f: &mut Frame, app: &mut App) {
-    let [header, body, footer] =
-        Layout::vertical([Constraint::Length(1), Constraint::Min(5), Constraint::Length(1)]).areas(f.area());
+    let [header, body, footer] = Layout::vertical([
+        Constraint::Length(1),
+        Constraint::Min(5),
+        Constraint::Length(1),
+    ])
+    .areas(f.area());
     let sidebar_w = if body.width >= 90 { 24 } else { 0 };
-    let [sidebar, main] = Layout::horizontal([Constraint::Length(sidebar_w), Constraint::Fill(1)]).areas(body);
-    let [tabs, table, details] =
-        Layout::vertical([Constraint::Length(1), Constraint::Min(3), Constraint::Length(8)]).areas(main);
+    let [sidebar, main] =
+        Layout::horizontal([Constraint::Length(sidebar_w), Constraint::Fill(1)]).areas(body);
+    let [tabs, table, details] = Layout::vertical([
+        Constraint::Length(1),
+        Constraint::Min(3),
+        Constraint::Length(8),
+    ])
+    .areas(main);
 
     draw_header(f, app, header);
     app.hit.sidebar = Rect::default();
@@ -63,9 +73,15 @@ fn draw_header(f: &mut Frame, app: &App, area: Rect) {
         Span::raw(format!(" {} ", app.url)).dim(),
     ]);
     let right = Line::from(vec![
-        Span::styled(format!("↓ {}", speed(t.dl_info_speed)), Style::new().fg(Color::Green)),
+        Span::styled(
+            format!("↓ {}", speed(t.dl_info_speed)),
+            Style::new().fg(Color::Green),
+        ),
         Span::raw(format!(" ({})  ", bytes(t.dl_info_data))).dim(),
-        Span::styled(format!("↑ {}", speed(t.up_info_speed)), Style::new().fg(Color::Magenta)),
+        Span::styled(
+            format!("↑ {}", speed(t.up_info_speed)),
+            Style::new().fg(Color::Magenta),
+        ),
         Span::raw(format!(" ({})  ", bytes(t.up_info_data))).dim(),
         Span::raw(format!("DHT {} ", t.dht_nodes)).dim(),
     ])
@@ -75,7 +91,10 @@ fn draw_header(f: &mut Frame, app: &App, area: Rect) {
 }
 
 fn pane() -> Block<'static> {
-    Block::new().borders(Borders::ALL).border_type(BorderType::Rounded).border_style(Style::new().dim())
+    Block::new()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(Style::new().dim())
 }
 
 fn draw_sidebar(f: &mut Frame, app: &mut App, area: Rect) {
@@ -90,7 +109,8 @@ fn draw_sidebar(f: &mut Frame, app: &mut App, area: Rect) {
         let min = 5.min(area.height / 2);
         share.clamp(min, area.height - min)
     };
-    let [cats, tags] = Layout::vertical([Constraint::Length(cat_h), Constraint::Fill(1)]).areas(area);
+    let [cats, tags] =
+        Layout::vertical([Constraint::Length(cat_h), Constraint::Fill(1)]).areas(area);
     app.hit.sidebar = cats;
     app.hit.tags = tags;
 
@@ -103,7 +123,11 @@ fn draw_sidebar(f: &mut Frame, app: &mut App, area: Rect) {
                 Category::None => ("Uncategorized".to_string(), Style::new().italic()),
                 Category::Named(n) => (n.clone(), Style::new()),
             };
-            (label, style, app.torrents.iter().filter(|t| c.matches(t)).count())
+            (
+                label,
+                style,
+                app.torrents.iter().filter(|t| c.matches(t)).count(),
+            )
         })
         .collect();
     app.sidebar.select(Some(app.category_index()));
@@ -118,7 +142,11 @@ fn draw_sidebar(f: &mut Frame, app: &mut App, area: Rect) {
                 TagFilter::None => ("Untagged".to_string(), Style::new().italic()),
                 TagFilter::Named(n) => (n.clone(), Style::new()),
             };
-            (label, style, app.torrents.iter().filter(|x| t.matches(x)).count())
+            (
+                label,
+                style,
+                app.torrents.iter().filter(|x| t.matches(x)).count(),
+            )
         })
         .collect();
     app.tag_list.select(Some(app.tag_index()));
@@ -126,7 +154,13 @@ fn draw_sidebar(f: &mut Frame, app: &mut App, area: Rect) {
 }
 
 /// A bordered sidebar list of `(label, style, count)` rows with the counts right-aligned.
-fn draw_side_list(f: &mut Frame, area: Rect, title: &str, entries: Vec<(String, Style, usize)>, state: &mut ListState) {
+fn draw_side_list(
+    f: &mut Frame,
+    area: Rect,
+    title: &str,
+    entries: Vec<(String, Style, usize)>,
+    state: &mut ListState,
+) {
     let block = pane().title(Line::from(title.to_string()).bold());
     let inner_w = block.inner(area).width as usize;
     let items: Vec<ListItem> = entries
@@ -145,7 +179,10 @@ fn draw_side_list(f: &mut Frame, area: Rect, title: &str, entries: Vec<(String, 
         })
         .collect();
     let highlight = Style::new().bg(Color::DarkGray).fg(ACCENT).bold();
-    let list = List::new(items).block(block).highlight_symbol("▌").highlight_style(highlight);
+    let list = List::new(items)
+        .block(block)
+        .highlight_symbol("▌")
+        .highlight_style(highlight);
     f.render_stateful_widget(list, area, state);
 }
 
@@ -174,13 +211,21 @@ fn draw_tabs(f: &mut Frame, app: &mut App, area: Rect) {
         .iter()
         .map(|t| {
             let w = t.width() as u16 + 2;
-            let r = Rect { x, width: w, ..area }.intersection(area);
+            let r = Rect {
+                x,
+                width: w,
+                ..area
+            }
+            .intersection(area);
             x = x.saturating_add(w + 1);
             r
         })
         .collect();
 
-    let idx = Filter::ALL.iter().position(|&x| x == app.filter).unwrap_or(0);
+    let idx = Filter::ALL
+        .iter()
+        .position(|&x| x == app.filter)
+        .unwrap_or(0);
     let tabs = Tabs::new(titles)
         .select(idx)
         .style(Style::new().dim())
@@ -224,7 +269,12 @@ fn visible_columns(width: u16) -> Vec<usize> {
 fn draw_table(f: &mut Frame, app: &mut App, area: Rect) {
     let cols = visible_columns(area.width.saturating_sub(2));
     let pick = |cells: Vec<Cell<'static>>| -> Vec<Cell<'static>> {
-        cells.into_iter().enumerate().filter(|(i, _)| cols.contains(i)).map(|(_, c)| c).collect()
+        cells
+            .into_iter()
+            .enumerate()
+            .filter(|(i, _)| cols.contains(i))
+            .map(|(_, c)| c)
+            .collect()
     };
 
     let header = Row::new(pick(COLUMNS.iter().map(|c| Cell::from(c.0)).collect()))
@@ -232,13 +282,21 @@ fn draw_table(f: &mut Frame, app: &mut App, area: Rect) {
 
     let rows = app.view.iter().map(|&i| {
         let t = &app.torrents[i];
-        let mark = if app.marked.contains(&t.hash) { "▌" } else { " " };
+        let mark = if app.marked.contains(&t.hash) {
+            "▌"
+        } else {
+            " "
+        };
         let (state_label, state_color) = state_info(&t.state);
         Row::new(pick(vec![
             Cell::from(mark).fg(Color::Yellow),
             Cell::from(t.name.clone()),
             Cell::from(bytes(t.size)),
-            Cell::from(progress_bar(t.progress, 9)).fg(if t.progress >= 1.0 { Color::Green } else { Color::Blue }),
+            Cell::from(progress_bar(t.progress, 9)).fg(if t.progress >= 1.0 {
+                Color::Green
+            } else {
+                Color::Blue
+            }),
             Cell::from(state_label).fg(state_color),
             Cell::from(speed_or_blank(t.dlspeed)).fg(Color::Green),
             Cell::from(speed_or_blank(t.upspeed)).fg(Color::Magenta),
@@ -247,7 +305,11 @@ fn draw_table(f: &mut Frame, app: &mut App, area: Rect) {
             Cell::from(format!("{:.2}", t.ratio)),
             Cell::from(eta(t.eta)),
         ]))
-        .style(if app.marked.contains(&t.hash) { Style::new().fg(Color::Yellow) } else { Style::new() })
+        .style(if app.marked.contains(&t.hash) {
+            Style::new().fg(Color::Yellow)
+        } else {
+            Style::new()
+        })
     });
 
     let widths: Vec<Constraint> = cols
@@ -268,14 +330,22 @@ fn draw_table(f: &mut Frame, app: &mut App, area: Rect) {
     match &app.tag {
         TagFilter::All => {}
         TagFilter::None => title.push(Span::styled("· untagged ", Style::new().fg(ACCENT))),
-        TagFilter::Named(n) => title.push(Span::styled(format!("· #{n} "), Style::new().fg(ACCENT))),
+        TagFilter::Named(n) => {
+            title.push(Span::styled(format!("· #{n} "), Style::new().fg(ACCENT)))
+        }
     }
     title.push(Span::raw(format!("· sort: {} {sort_dir} ", app.sort.label())).dim());
     if !app.search.is_empty() || matches!(app.mode, Mode::Search) {
-        title.push(Span::styled(format!("· /{} ", app.search), Style::new().fg(Color::Yellow)));
+        title.push(Span::styled(
+            format!("· /{} ", app.search),
+            Style::new().fg(Color::Yellow),
+        ));
     }
     if !app.marked.is_empty() {
-        title.push(Span::styled(format!("· {} marked ", app.marked.len()), Style::new().fg(Color::Yellow)));
+        title.push(Span::styled(
+            format!("· {} marked ", app.marked.len()),
+            Style::new().fg(Color::Yellow),
+        ));
     }
 
     let block = pane().title(Line::from(title));
@@ -287,12 +357,24 @@ fn draw_table(f: &mut Frame, app: &mut App, area: Rect) {
         .header(header)
         .block(block)
         .column_spacing(1)
-        .row_highlight_style(Style::new().bg(Color::DarkGray).add_modifier(Modifier::BOLD));
+        .row_highlight_style(
+            Style::new()
+                .bg(Color::DarkGray)
+                .add_modifier(Modifier::BOLD),
+        );
 
     if app.view.is_empty() {
         f.render_widget(table, area);
-        let msg = if app.connected { "No torrents" } else { "Not connected" };
-        let inner = Rect { y: area.y + area.height / 2, height: 1, ..area };
+        let msg = if app.connected {
+            "No torrents"
+        } else {
+            "Not connected"
+        };
+        let inner = Rect {
+            y: area.y + area.height / 2,
+            height: 1,
+            ..area
+        };
         f.render_widget(Line::from(msg).dim().centered(), inner);
     } else {
         f.render_stateful_widget(table, area, &mut app.table);
@@ -302,20 +384,52 @@ fn draw_table(f: &mut Frame, app: &mut App, area: Rect) {
 fn draw_details(f: &mut Frame, app: &App, area: Rect) {
     let Some(t) = app.selected() else {
         f.render_widget(pane(), area);
-        let mid = Rect { y: area.y + area.height / 2, height: 1, ..area };
+        let mid = Rect {
+            y: area.y + area.height / 2,
+            height: 1,
+            ..area
+        };
         f.render_widget(Line::from("No torrent selected").dim().centered(), mid);
         return;
     };
     let kv = |k: &'static str, v: String| {
-        Line::from(vec![Span::styled(format!("{k:>10} "), Style::new().fg(ACCENT)), Span::raw(v)])
+        Line::from(vec![
+            Span::styled(format!("{k:>10} "), Style::new().fg(ACCENT)),
+            Span::raw(v),
+        ])
     };
-    let added = if t.added_on > 0 { fmt_age(t.added_on) } else { "-".into() };
+    let added = if t.added_on > 0 {
+        fmt_age(t.added_on)
+    } else {
+        "-".into()
+    };
     let left = vec![
         kv("Hash", t.hash.clone()),
         kv("Save path", t.save_path.clone()),
-        kv("Tracker", if t.tracker.is_empty() { "-".into() } else { t.tracker.clone() }),
-        kv("Category", if t.category.is_empty() { "-".into() } else { t.category.clone() }),
-        kv("Tags", if t.tags.is_empty() { "-".into() } else { t.tags.clone() }),
+        kv(
+            "Tracker",
+            if t.tracker.is_empty() {
+                "-".into()
+            } else {
+                t.tracker.clone()
+            },
+        ),
+        kv(
+            "Category",
+            if t.category.is_empty() {
+                "-".into()
+            } else {
+                t.category.clone()
+            },
+        ),
+        kv(
+            "Tags",
+            if t.tags.is_empty() {
+                "-".into()
+            } else {
+                t.tags.clone()
+            },
+        ),
         kv("Added", added),
     ];
     let right = vec![
@@ -354,7 +468,11 @@ fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
     if let Some((msg, err, at)) = &app.status
         && (*err || at.elapsed() < Duration::from_secs(4))
     {
-        let style = if *err { Style::new().fg(Color::Red) } else { Style::new().fg(Color::Green) };
+        let style = if *err {
+            Style::new().fg(Color::Red)
+        } else {
+            Style::new().fg(Color::Green)
+        };
         f.render_widget(Line::styled(format!(" {msg}"), style), area);
         return;
     }
@@ -384,7 +502,12 @@ fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
 fn centered(area: Rect, w: u16, h: u16) -> Rect {
     let w = w.min(area.width);
     let h = h.min(area.height);
-    Rect { x: area.x + (area.width - w) / 2, y: area.y + (area.height - h) / 2, width: w, height: h }
+    Rect {
+        x: area.x + (area.width - w) / 2,
+        y: area.y + (area.height - h) / 2,
+        width: w,
+        height: h,
+    }
 }
 
 fn popup(title: &str) -> Block<'_> {
@@ -407,7 +530,10 @@ fn draw_add_form(f: &mut Frame, form: &AddForm, save_hint: Option<(String, &str)
     let value_w = (inner.width as usize).saturating_sub(LABEL_W + 2);
     let label = |name: &str, field: AddField| {
         if form.field == field {
-            Span::styled(format!("▸ {name:<w$}", w = LABEL_W - 2), Style::new().fg(ACCENT).bold())
+            Span::styled(
+                format!("▸ {name:<w$}", w = LABEL_W - 2),
+                Style::new().fg(ACCENT).bold(),
+            )
         } else {
             Span::raw(format!("  {name:<w$}", w = LABEL_W - 2)).dim()
         }
@@ -443,7 +569,11 @@ fn draw_add_form(f: &mut Frame, form: &AddForm, save_hint: Option<(String, &str)
         None => "(qBittorrent default)".to_string(),
     };
     let cat_name = form.category.as_deref().unwrap_or("(none)");
-    let cat_style = if form.category.is_some() { Style::new() } else { Style::new().dim() };
+    let cat_style = if form.category.is_some() {
+        Style::new()
+    } else {
+        Style::new().dim()
+    };
     let category = if form.field == AddField::Category {
         vec![
             Span::styled("‹ ", Style::new().fg(ACCENT)),
@@ -459,9 +589,19 @@ fn draw_add_form(f: &mut Frame, form: &AddForm, save_hint: Option<(String, &str)
         Line::from(v)
     };
     let lines = vec![
-        line(label("Source", AddField::Source), text(&form.source, AddField::Source, "magnet link, URL or .torrent file")),
+        line(
+            label("Source", AddField::Source),
+            text(
+                &form.source,
+                AddField::Source,
+                "magnet link, URL or .torrent file",
+            ),
+        ),
         line(label("Category", AddField::Category), category),
-        line(label("Save to", AddField::SavePath), text(&form.save_path, AddField::SavePath, &save_placeholder)),
+        line(
+            label("Save to", AddField::SavePath),
+            text(&form.save_path, AddField::SavePath, &save_placeholder),
+        ),
         completion_line(form, value_w),
         {
             // Keys specific to the active field first, then the common ones.
@@ -470,7 +610,12 @@ fn draw_add_form(f: &mut Frame, form: &AddForm, save_hint: Option<(String, &str)
                 AddField::Category => &[("←/→", "change")],
                 AddField::SavePath => &[("→", "edit shown path")],
             };
-            let common = [("↑↓", "field"), ("^u", "clear"), ("enter", "add"), ("esc", "cancel")];
+            let common = [
+                ("↑↓", "field"),
+                ("^u", "clear"),
+                ("enter", "add"),
+                ("esc", "cancel"),
+            ];
             let mut spans = Vec::new();
             for (k, v) in field_keys.iter().chain(common.iter()) {
                 spans.push(Span::styled(*k, Style::new().fg(ACCENT)));
@@ -480,7 +625,12 @@ fn draw_add_form(f: &mut Frame, form: &AddForm, save_hint: Option<(String, &str)
         }
         .centered(),
     ];
-    let pad = Rect { x: inner.x + 1, width: inner.width.saturating_sub(2), y: inner.y + 1, height: inner.height.saturating_sub(1) };
+    let pad = Rect {
+        x: inner.x + 1,
+        width: inner.width.saturating_sub(2),
+        y: inner.y + 1,
+        height: inner.height.saturating_sub(1),
+    };
     f.render_widget(Paragraph::new(lines), pad);
 }
 
@@ -490,14 +640,21 @@ fn completion_line(form: &AddForm, width: usize) -> Line<'static> {
     let mut used = 0;
     for (i, c) in form.completions.iter().enumerate() {
         // Last path component, keeping a directory's trailing separator.
-        let start = c.trim_end_matches(is_separator).rfind(is_separator).map_or(0, |i| i + 1);
+        let start = c
+            .trim_end_matches(is_separator)
+            .rfind(is_separator)
+            .map_or(0, |i| i + 1);
         let name = c[start..].to_string();
         if used + name.chars().count() + 2 > width {
             spans.push(Span::raw(format!("+{}", form.completions.len() - i)).dim());
             break;
         }
         used += name.chars().count() + 2;
-        let style = if form.completion_idx == Some(i) { Style::new().fg(ACCENT).bold() } else { Style::new().dim() };
+        let style = if form.completion_idx == Some(i) {
+            Style::new().fg(ACCENT).bold()
+        } else {
+            Style::new().dim()
+        };
         spans.push(Span::styled(name, style));
         spans.push(Span::raw("  "));
     }
@@ -510,13 +667,20 @@ fn draw_picker(f: &mut Frame, app: &App, p: &Picker) {
     let area = centered(f.area(), 50, rows + 6);
     f.render_widget(Clear, area);
     let n = p.targets.len();
-    let title = format!("Set category ({n} torrent{})", if n == 1 { "" } else { "s" });
+    let title = format!(
+        "Set category ({n} torrent{})",
+        if n == 1 { "" } else { "s" }
+    );
     let block = popup(&title);
     let inner = block.inner(area);
     f.render_widget(block, area);
 
-    let [input, list, hint] =
-        Layout::vertical([Constraint::Length(2), Constraint::Min(1), Constraint::Length(1)]).areas(inner);
+    let [input, list, hint] = Layout::vertical([
+        Constraint::Length(2),
+        Constraint::Min(1),
+        Constraint::Length(1),
+    ])
+    .areas(inner);
     let line = Line::from(vec![
         Span::styled(" filter ", Style::new().fg(ACCENT)),
         Span::raw(p.filter.clone()),
@@ -529,9 +693,10 @@ fn draw_picker(f: &mut Frame, app: &App, p: &Picker) {
         .map(|o| match o {
             PickOption::None => ListItem::new(Line::from("(none)").italic()),
             PickOption::Existing(name) => ListItem::new(name.clone()),
-            PickOption::Create(name) => {
-                ListItem::new(Line::from(vec![Span::raw("+ create ").fg(Color::Green), Span::raw(format!("\u{201c}{name}\u{201d}"))]))
-            }
+            PickOption::Create(name) => ListItem::new(Line::from(vec![
+                Span::raw("+ create ").fg(Color::Green),
+                Span::raw(format!("\u{201c}{name}\u{201d}")),
+            ])),
         })
         .collect();
     let list_w = List::new(items)
@@ -540,7 +705,12 @@ fn draw_picker(f: &mut Frame, app: &App, p: &Picker) {
     let mut state = ListState::default().with_selected(Some(p.idx));
     f.render_stateful_widget(list_w, list, &mut state);
 
-    f.render_widget(Line::from("↑/↓ choose · enter apply · esc cancel").dim().centered(), hint);
+    f.render_widget(
+        Line::from("↑/↓ choose · enter apply · esc cancel")
+            .dim()
+            .centered(),
+        hint,
+    );
 }
 
 fn draw_tag_picker(f: &mut Frame, p: &TagPicker) {
@@ -554,8 +724,12 @@ fn draw_tag_picker(f: &mut Frame, p: &TagPicker) {
     let inner = block.inner(area);
     f.render_widget(block, area);
 
-    let [input, list, hint] =
-        Layout::vertical([Constraint::Length(2), Constraint::Min(1), Constraint::Length(1)]).areas(inner);
+    let [input, list, hint] = Layout::vertical([
+        Constraint::Length(2),
+        Constraint::Min(1),
+        Constraint::Length(1),
+    ])
+    .areas(inner);
     let line = Line::from(vec![
         Span::styled(" filter ", Style::new().fg(ACCENT)),
         Span::raw(p.filter.clone()),
@@ -564,7 +738,9 @@ fn draw_tag_picker(f: &mut Frame, p: &TagPicker) {
     f.render_widget(line, input);
 
     let items: Vec<ListItem> = if options.is_empty() {
-        vec![ListItem::new(Line::from("no tags yet: type a name to create one").dim())]
+        vec![ListItem::new(
+            Line::from("no tags yet: type a name to create one").dim(),
+        )]
     } else {
         options
             .iter()
@@ -575,7 +751,10 @@ fn draw_tag_picker(f: &mut Frame, p: &TagPicker) {
                         Check::Some => ("[-] ", Style::new().fg(Color::Yellow)),
                         Check::None => ("[ ] ", Style::new().dim()),
                     };
-                    ListItem::new(Line::from(vec![Span::styled(mark, style), Span::raw(tag.clone())]))
+                    ListItem::new(Line::from(vec![
+                        Span::styled(mark, style),
+                        Span::raw(tag.clone()),
+                    ]))
                 }
                 Err(name) => ListItem::new(Line::from(vec![
                     Span::raw("+ create ").fg(Color::Green),
@@ -591,7 +770,12 @@ fn draw_tag_picker(f: &mut Frame, p: &TagPicker) {
     let mut state = ListState::default().with_selected(selected);
     f.render_stateful_widget(list_w, list, &mut state);
 
-    f.render_widget(Line::from("↑/↓ choose · enter/space toggle · esc done").dim().centered(), hint);
+    f.render_widget(
+        Line::from("↑/↓ choose · enter/space toggle · esc done")
+            .dim()
+            .centered(),
+        hint,
+    );
 }
 
 fn file_priority(p: i64) -> (&'static str, Color) {
@@ -605,23 +789,37 @@ fn file_priority(p: i64) -> (&'static str, Color) {
 
 fn draw_files(f: &mut Frame, v: &mut FilesView) {
     let full = f.area();
-    let area = centered(full, full.width.saturating_sub(8).max(60), full.height.saturating_sub(4));
+    let area = centered(
+        full,
+        full.width.saturating_sub(8).max(60),
+        full.height.saturating_sub(4),
+    );
     f.render_widget(Clear, area);
-    let count = v.files.as_ref().map(|fs| format!(" ({})", fs.len())).unwrap_or_default();
+    let count = v
+        .files
+        .as_ref()
+        .map(|fs| format!(" ({})", fs.len()))
+        .unwrap_or_default();
     let title = format!("{}{count}", v.name);
     let block = popup(&title);
     let inner = block.inner(area);
     f.render_widget(block, area);
     let [list, hint] = Layout::vertical([Constraint::Min(1), Constraint::Length(1)]).areas(inner);
-    let hint_text = "↑/↓ j/k move · g/G top/end · space download/skip · +/- priority · enter fold · ←/esc back";
+    let hint_text =
+        "↑/↓ j/k move · g/G top/end · space download/skip · +/- priority · enter fold · ←/esc back";
     f.render_widget(Line::from(hint_text).dim().centered(), hint);
 
     let Some(files) = &v.files else {
-        let mid = Rect { y: list.y + list.height / 2, height: 1, ..list };
+        let mid = Rect {
+            y: list.y + list.height / 2,
+            height: 1,
+            ..list
+        };
         f.render_widget(Line::from("Loading…").dim().centered(), mid);
         return;
     };
-    let header = Row::new(["Name", "Size", "Progress", "Priority"]).style(Style::new().fg(ACCENT).bold());
+    let header =
+        Row::new(["Name", "Size", "Progress", "Priority"]).style(Style::new().fg(ACCENT).bold());
     let rows: Vec<Row> = v
         .rows()
         .iter()
@@ -630,43 +828,70 @@ fn draw_files(f: &mut Frame, v: &mut FilesView) {
             let indent = "  ".repeat(r.depth());
             let name = match r {
                 FileRow::Folder { name, open, .. } => {
-                    Line::from(format!("{indent}{} {name}/", if *open { "▾" } else { "▸" })).fg(ACCENT)
+                    Line::from(format!("{indent}{} {name}/", if *open { "▾" } else { "▸" }))
+                        .fg(ACCENT)
                 }
                 FileRow::File { name, .. } => Line::from(format!("{indent}  {name}")),
             };
             let size: i64 = ids.iter().map(|&i| files[i].size).sum();
-            let done: f64 = ids.iter().map(|&i| files[i].size as f64 * files[i].progress).sum();
+            let done: f64 = ids
+                .iter()
+                .map(|&i| files[i].size as f64 * files[i].progress)
+                .sum();
             let progress = if size > 0 { done / size as f64 } else { 1.0 };
             let priority = v.priority(&ids);
             let (prio, prio_color) = priority.map_or(("Mixed", Color::Reset), file_priority);
             let row = Row::new(vec![
                 Cell::from(name),
                 Cell::from(bytes(size)),
-                Cell::from(progress_bar(progress, 9)).fg(if progress >= 1.0 { Color::Green } else { Color::Blue }),
+                Cell::from(progress_bar(progress, 9)).fg(if progress >= 1.0 {
+                    Color::Green
+                } else {
+                    Color::Blue
+                }),
                 Cell::from(prio).fg(prio_color),
             ]);
             if priority == Some(0) { row.dim() } else { row }
         })
         .collect();
-    let widths = [Constraint::Fill(1), Constraint::Length(10), Constraint::Length(15), Constraint::Length(8)];
+    let widths = [
+        Constraint::Fill(1),
+        Constraint::Length(10),
+        Constraint::Length(15),
+        Constraint::Length(8),
+    ];
     let table = Table::new(rows, widths)
         .header(header)
         .column_spacing(1)
-        .row_highlight_style(Style::new().bg(Color::DarkGray).add_modifier(Modifier::BOLD));
+        .row_highlight_style(
+            Style::new()
+                .bg(Color::DarkGray)
+                .add_modifier(Modifier::BOLD),
+        );
     f.render_stateful_widget(table, list, &mut v.table);
 }
 
 fn draw_confirm(f: &mut Frame, app: &App) {
     let names: Vec<String> = if app.marked.is_empty() {
-        app.selected().map(|t| vec![t.name.clone()]).unwrap_or_default()
+        app.selected()
+            .map(|t| vec![t.name.clone()])
+            .unwrap_or_default()
     } else {
-        app.torrents.iter().filter(|t| app.marked.contains(&t.hash)).map(|t| t.name.clone()).collect()
+        app.torrents
+            .iter()
+            .filter(|t| app.marked.contains(&t.hash))
+            .map(|t| t.name.clone())
+            .collect()
     };
     let shown = names.len().min(5);
     let area = centered(f.area(), 70, shown as u16 + 6);
     f.render_widget(Clear, area);
 
-    let mut lines: Vec<Line> = names.iter().take(5).map(|n| Line::from(format!("  {n}"))).collect();
+    let mut lines: Vec<Line> = names
+        .iter()
+        .take(5)
+        .map(|n| Line::from(format!("  {n}")))
+        .collect();
     if names.len() > 5 {
         lines.push(Line::from(format!("  …and {} more", names.len() - 5)).dim());
     }
@@ -680,8 +905,17 @@ fn draw_confirm(f: &mut Frame, app: &App) {
         Span::styled("any", Style::new().bold()),
         Span::raw(" cancel"),
     ]));
-    let title = format!("Delete {} torrent{}?", names.len(), if names.len() == 1 { "" } else { "s" });
-    f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }).block(popup(&title)), area);
+    let title = format!(
+        "Delete {} torrent{}?",
+        names.len(),
+        if names.len() == 1 { "" } else { "s" }
+    );
+    f.render_widget(
+        Paragraph::new(lines)
+            .wrap(Wrap { trim: false })
+            .block(popup(&title)),
+        area,
+    );
 }
 
 fn draw_help(f: &mut Frame) {
@@ -710,10 +944,19 @@ fn draw_help(f: &mut Frame) {
     f.render_widget(Clear, area);
     let mut lines: Vec<Line> = rows
         .iter()
-        .map(|(k, v)| Line::from(vec![Span::styled(format!("{k:>19}  "), Style::new().fg(ACCENT).bold()), Span::raw(*v)]))
+        .map(|(k, v)| {
+            Line::from(vec![
+                Span::styled(format!("{k:>19}  "), Style::new().fg(ACCENT).bold()),
+                Span::raw(*v),
+            ])
+        })
         .collect();
     lines.push(Line::raw(""));
-    lines.push(Line::from("mouse: click select · right-click mark · wheel scroll").dim().centered());
+    lines.push(
+        Line::from("mouse: click select · right-click mark · wheel scroll")
+            .dim()
+            .centered(),
+    );
     lines.push(Line::from("press any key to close").dim().centered());
     f.render_widget(Paragraph::new(lines).block(popup("Keys")), area);
 }
@@ -742,7 +985,12 @@ fn state_info(state: &str) -> (&'static str, Color) {
 fn progress_bar(p: f64, width: usize) -> String {
     let p = p.clamp(0.0, 1.0);
     let filled = (p * width as f64).round() as usize;
-    format!("{}{} {:>3.0}%", "█".repeat(filled), "░".repeat(width - filled), p * 100.0)
+    format!(
+        "{}{} {:>3.0}%",
+        "█".repeat(filled),
+        "░".repeat(width - filled),
+        p * 100.0
+    )
 }
 
 pub fn bytes(n: i64) -> String {
@@ -753,7 +1001,11 @@ pub fn bytes(n: i64) -> String {
         v /= 1024.0;
         u += 1;
     }
-    if u == 0 { format!("{v:.0} {}", UNITS[u]) } else { format!("{v:.1} {}", UNITS[u]) }
+    if u == 0 {
+        format!("{v:.0} {}", UNITS[u])
+    } else {
+        format!("{v:.1} {}", UNITS[u])
+    }
 }
 
 fn speed(n: i64) -> String {

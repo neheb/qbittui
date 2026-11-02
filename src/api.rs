@@ -105,7 +105,9 @@ pub struct Client {
 
 impl Client {
     pub fn new(base: &str, username: &str, password: &str, tls: &Tls) -> Result<Self> {
-        let mut builder = Http::builder().cookie_store(true).timeout(Duration::from_secs(10));
+        let mut builder = Http::builder()
+            .cookie_store(true)
+            .timeout(Duration::from_secs(10));
         if tls.insecure {
             builder = builder.danger_accept_invalid_certs(true);
         } else if let Some(path) = &tls.ca_cert {
@@ -142,7 +144,9 @@ impl Client {
             bail!("login failed: bad username or password");
         }
 
-        let version = self.request(|c| c.http.get(c.url("app/webapiVersion")))?.text()?;
+        let version = self
+            .request(|c| c.http.get(c.url("app/webapiVersion")))?
+            .text()?;
         self.stop_start = version_at_least(version.trim(), (2, 11));
         Ok(())
     }
@@ -171,45 +175,70 @@ impl Client {
     }
 
     pub fn torrents(&mut self) -> Result<Vec<Torrent>> {
-        Ok(self.request(|c| c.http.get(c.url("torrents/info")))?.json()?)
+        Ok(self
+            .request(|c| c.http.get(c.url("torrents/info")))?
+            .json()?)
     }
 
     /// Categories sorted by name. The API returns an object keyed by name.
     pub fn categories(&mut self) -> Result<Vec<CategoryInfo>> {
-        let map: std::collections::BTreeMap<String, CategoryInfo> =
-            self.request(|c| c.http.get(c.url("torrents/categories")))?.json()?;
+        let map: std::collections::BTreeMap<String, CategoryInfo> = self
+            .request(|c| c.http.get(c.url("torrents/categories")))?
+            .json()?;
         Ok(map.into_values().collect())
     }
 
     pub fn files(&mut self, hash: &str) -> Result<Vec<TorrentFile>> {
-        Ok(self.request(|c| c.http.get(c.url("torrents/files")).query(&[("hash", hash)]))?.json()?)
+        Ok(self
+            .request(|c| c.http.get(c.url("torrents/files")).query(&[("hash", hash)]))?
+            .json()?)
     }
 
     /// `ids` are file indices as listed by `files`; priority 0 skips the files.
     pub fn file_prio(&mut self, hash: &str, ids: &[usize], priority: i64) -> Result<()> {
-        let ids = ids.iter().map(usize::to_string).collect::<Vec<_>>().join("|");
+        let ids = ids
+            .iter()
+            .map(usize::to_string)
+            .collect::<Vec<_>>()
+            .join("|");
         let priority = priority.to_string();
         self.request(|c| {
-            c.http.post(c.url("torrents/filePrio")).form(&[("hash", hash), ("id", &ids), ("priority", &priority)])
+            c.http.post(c.url("torrents/filePrio")).form(&[
+                ("hash", hash),
+                ("id", &ids),
+                ("priority", &priority),
+            ])
         })?;
         Ok(())
     }
 
     pub fn preferences(&mut self) -> Result<Prefs> {
-        Ok(self.request(|c| c.http.get(c.url("app/preferences")))?.json()?)
+        Ok(self
+            .request(|c| c.http.get(c.url("app/preferences")))?
+            .json()?)
     }
 
     pub fn transfer(&mut self) -> Result<Transfer> {
-        Ok(self.request(|c| c.http.get(c.url("transfer/info")))?.json()?)
+        Ok(self
+            .request(|c| c.http.get(c.url("transfer/info")))?
+            .json()?)
     }
 
     pub fn pause(&mut self, hashes: &[String]) -> Result<()> {
-        let path = if self.stop_start { "torrents/stop" } else { "torrents/pause" };
+        let path = if self.stop_start {
+            "torrents/stop"
+        } else {
+            "torrents/pause"
+        };
         self.post_hashes(path, hashes, &[])
     }
 
     pub fn resume(&mut self, hashes: &[String]) -> Result<()> {
-        let path = if self.stop_start { "torrents/start" } else { "torrents/resume" };
+        let path = if self.stop_start {
+            "torrents/start"
+        } else {
+            "torrents/resume"
+        };
         self.post_hashes(path, hashes, &[])
     }
 
@@ -224,12 +253,18 @@ impl Client {
     }
 
     pub fn create_category(&mut self, name: &str) -> Result<()> {
-        self.request(|c| c.http.post(c.url("torrents/createCategory")).form(&[("category", name), ("savePath", "")]))?;
+        self.request(|c| {
+            c.http
+                .post(c.url("torrents/createCategory"))
+                .form(&[("category", name), ("savePath", "")])
+        })?;
         Ok(())
     }
 
     pub fn tags(&mut self) -> Result<Vec<String>> {
-        let mut tags: Vec<String> = self.request(|c| c.http.get(c.url("torrents/tags")))?.json()?;
+        let mut tags: Vec<String> = self
+            .request(|c| c.http.get(c.url("torrents/tags")))?
+            .json()?;
         tags.sort_by_key(|t| t.to_lowercase());
         Ok(tags)
     }
@@ -255,7 +290,11 @@ impl Client {
         let path = std::path::Path::new(&t.source);
         let file = if path.is_file() {
             let bytes = std::fs::read(path).with_context(|| format!("reading {}", t.source))?;
-            let name = path.file_name().unwrap_or_default().to_string_lossy().into_owned();
+            let name = path
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .into_owned();
             Some((bytes, name))
         } else {
             None

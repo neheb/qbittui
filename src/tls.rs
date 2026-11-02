@@ -30,11 +30,17 @@ impl ServerCertVerifier for PinnedOrRoots {
         ocsp_response: &[u8],
         now: UnixTime,
     ) -> Result<ServerCertVerified, Error> {
-        if self.pinned.iter().any(|c| c.as_ref() == end_entity.as_ref()) {
+        if self
+            .pinned
+            .iter()
+            .any(|c| c.as_ref() == end_entity.as_ref())
+        {
             return Ok(ServerCertVerified::assertion());
         }
         match &self.roots {
-            Some(v) => v.verify_server_cert(end_entity, intermediates, server_name, ocsp_response, now),
+            Some(v) => {
+                v.verify_server_cert(end_entity, intermediates, server_name, ocsp_response, now)
+            }
             None => Err(Error::InvalidCertificate(CertificateError::UnknownIssuer)),
         }
     }
@@ -47,7 +53,12 @@ impl ServerCertVerifier for PinnedOrRoots {
         cert: &CertificateDer<'_>,
         dss: &DigitallySignedStruct,
     ) -> Result<HandshakeSignatureValid, Error> {
-        verify_tls12_signature(message, cert, dss, &self.provider.signature_verification_algorithms)
+        verify_tls12_signature(
+            message,
+            cert,
+            dss,
+            &self.provider.signature_verification_algorithms,
+        )
     }
 
     fn verify_tls13_signature(
@@ -56,11 +67,18 @@ impl ServerCertVerifier for PinnedOrRoots {
         cert: &CertificateDer<'_>,
         dss: &DigitallySignedStruct,
     ) -> Result<HandshakeSignatureValid, Error> {
-        verify_tls13_signature(message, cert, dss, &self.provider.signature_verification_algorithms)
+        verify_tls13_signature(
+            message,
+            cert,
+            dss,
+            &self.provider.signature_verification_algorithms,
+        )
     }
 
     fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
-        self.provider.signature_verification_algorithms.supported_schemes()
+        self.provider
+            .signature_verification_algorithms
+            .supported_schemes()
     }
 }
 
@@ -78,11 +96,18 @@ pub fn config_trusting(path: &Path) -> Result<rustls::ClientConfig> {
     let mut store = RootCertStore::empty();
     let (added, _) = store.add_parsable_certificates(certs.iter().cloned());
     let roots = if added > 0 {
-        Some(WebPkiServerVerifier::builder_with_provider(Arc::new(store), provider.clone()).build()?)
+        Some(
+            WebPkiServerVerifier::builder_with_provider(Arc::new(store), provider.clone())
+                .build()?,
+        )
     } else {
         None
     };
-    let verifier = PinnedOrRoots { pinned: certs, roots, provider: provider.clone() };
+    let verifier = PinnedOrRoots {
+        pinned: certs,
+        roots,
+        provider: provider.clone(),
+    };
     Ok(rustls::ClientConfig::builder_with_provider(provider)
         .with_safe_default_protocol_versions()?
         .dangerous()

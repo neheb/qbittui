@@ -67,15 +67,19 @@ pub fn run(mut client: Client, interval: Duration, rx: Receiver<Cmd>, tx: Sender
                     None
                 }),
                 Cmd::Pause(h) => client.pause(&h).map(|_| Some(format!("Paused {}", n(&h)))),
-                Cmd::Resume(h) => client.resume(&h).map(|_| Some(format!("Resumed {}", n(&h)))),
+                Cmd::Resume(h) => client
+                    .resume(&h)
+                    .map(|_| Some(format!("Resumed {}", n(&h)))),
                 Cmd::Delete(h, files) => client.delete(&h, files).map(|_| {
                     let what = if files { " (with data)" } else { "" };
                     Some(format!("Deleted {}{what}", n(&h)))
                 }),
-                Cmd::Recheck(h) => client.recheck(&h).map(|_| Some(format!("Rechecking {}", n(&h)))),
-                Cmd::Reannounce(h) => {
-                    client.reannounce(&h).map(|_| Some(format!("Reannounced {}", n(&h))))
-                }
+                Cmd::Recheck(h) => client
+                    .recheck(&h)
+                    .map(|_| Some(format!("Rechecking {}", n(&h)))),
+                Cmd::Reannounce(h) => client
+                    .reannounce(&h)
+                    .map(|_| Some(format!("Reannounced {}", n(&h)))),
                 Cmd::SetCategory(h, cat, create) => (|| {
                     if create {
                         client.create_category(&cat)?;
@@ -87,10 +91,12 @@ pub fn run(mut client: Client, interval: Duration, rx: Receiver<Cmd>, tx: Sender
                         format!("Moved {} to {cat}", n(&h))
                     }))
                 })(),
-                Cmd::Tag(h, tag, true) => client.add_tag(&h, &tag).map(|_| Some(format!("Tagged {} with {tag}", n(&h)))),
-                Cmd::Tag(h, tag, false) => {
-                    client.remove_tag(&h, &tag).map(|_| Some(format!("Removed tag {tag} from {}", n(&h))))
-                }
+                Cmd::Tag(h, tag, true) => client
+                    .add_tag(&h, &tag)
+                    .map(|_| Some(format!("Tagged {} with {tag}", n(&h)))),
+                Cmd::Tag(h, tag, false) => client
+                    .remove_tag(&h, &tag)
+                    .map(|_| Some(format!("Removed tag {tag} from {}", n(&h)))),
                 Cmd::Files(h) => {
                     files_hash = h;
                     Ok(None)
@@ -110,11 +116,19 @@ pub fn run(mut client: Client, interval: Duration, rx: Receiver<Cmd>, tx: Sender
         }
 
         let mut fetch = || -> anyhow::Result<_> {
-            Ok((client.torrents()?, client.transfer()?, client.categories()?, client.tags()?))
+            Ok((
+                client.torrents()?,
+                client.transfer()?,
+                client.categories()?,
+                client.tags()?,
+            ))
         };
         match fetch() {
             Ok((torrents, transfer, categories, tags)) => {
-                if tx.send(Msg::Data(torrents, transfer, categories, tags)).is_err() {
+                if tx
+                    .send(Msg::Data(torrents, transfer, categories, tags))
+                    .is_err()
+                {
                     return;
                 }
             }

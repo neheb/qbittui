@@ -44,9 +44,18 @@ impl Filter {
             Filter::All => true,
             Filter::Downloading => matches!(
                 s,
-                "downloading" | "stalledDL" | "queuedDL" | "forcedDL" | "metaDL" | "forcedMetaDL" | "checkingDL"
+                "downloading"
+                    | "stalledDL"
+                    | "queuedDL"
+                    | "forcedDL"
+                    | "metaDL"
+                    | "forcedMetaDL"
+                    | "checkingDL"
             ),
-            Filter::Seeding => matches!(s, "uploading" | "stalledUP" | "queuedUP" | "forcedUP" | "checkingUP"),
+            Filter::Seeding => matches!(
+                s,
+                "uploading" | "stalledUP" | "queuedUP" | "forcedUP" | "checkingUP"
+            ),
             Filter::Paused => t.is_paused(),
             Filter::Active => t.dlspeed > 0 || t.upspeed > 0,
             Filter::Errored => matches!(s, "error" | "missingFiles"),
@@ -214,8 +223,14 @@ fn path_completions(input: &str) -> Vec<String> {
         Some(i) => input.split_at(i + 1),
         None => ("", input),
     };
-    let read_dir = if dir.is_empty() { ".".to_string() } else { expand_tilde(dir) };
-    let Ok(entries) = std::fs::read_dir(&read_dir) else { return Vec::new() };
+    let read_dir = if dir.is_empty() {
+        ".".to_string()
+    } else {
+        expand_tilde(dir)
+    };
+    let Ok(entries) = std::fs::read_dir(&read_dir) else {
+        return Vec::new();
+    };
     let mut out: Vec<String> = entries
         .flatten()
         .filter_map(|e| {
@@ -286,8 +301,13 @@ impl TagPicker {
     /// Matching tags, plus a "create" entry (as `Err`) when the filter names a new tag.
     pub fn options(&self) -> Vec<Result<String, String>> {
         let needle = self.filter.trim().to_lowercase();
-        let mut out: Vec<Result<String, String>> =
-            self.tags.iter().filter(|t| t.to_lowercase().contains(&needle)).cloned().map(Ok).collect();
+        let mut out: Vec<Result<String, String>> = self
+            .tags
+            .iter()
+            .filter(|t| t.to_lowercase().contains(&needle))
+            .cloned()
+            .map(Ok)
+            .collect();
         if !needle.is_empty() && !self.tags.iter().any(|t| t.to_lowercase() == needle) {
             out.push(Err(self.filter.trim().to_string()));
         }
@@ -312,8 +332,18 @@ pub struct FilesView {
 
 /// A visible line of the file tree. `files` holds the indices of every file a folder contains.
 pub enum FileRow {
-    Folder { path: String, name: String, depth: usize, open: bool, files: Vec<usize> },
-    File { idx: usize, name: String, depth: usize },
+    Folder {
+        path: String,
+        name: String,
+        depth: usize,
+        open: bool,
+        files: Vec<usize>,
+    },
+    File {
+        idx: usize,
+        name: String,
+        depth: usize,
+    },
 }
 
 impl FileRow {
@@ -339,7 +369,11 @@ impl FilesView {
     pub fn rows(&self) -> Vec<FileRow> {
         let mut out = Vec::new();
         if let Some(files) = &self.files {
-            let items = files.iter().enumerate().map(|(i, f)| (i, f.name.as_str())).collect();
+            let items = files
+                .iter()
+                .enumerate()
+                .map(|(i, f)| (i, f.name.as_str()))
+                .collect();
             self.walk(items, "", 0, &mut out);
         }
         out
@@ -358,20 +392,32 @@ impl FilesView {
             let path = format!("{prefix}{name}");
             let open = !self.collapsed.contains(&path);
             let ids = children.iter().map(|&(i, _)| i).collect();
-            out.push(FileRow::Folder { path: path.clone(), name: name.to_string(), depth, open, files: ids });
+            out.push(FileRow::Folder {
+                path: path.clone(),
+                name: name.to_string(),
+                depth,
+                open,
+                files: ids,
+            });
             if open {
                 self.walk(children, &format!("{path}/"), depth + 1, out);
             }
         }
         files.sort_by_key(|&(_, name)| name);
-        out.extend(files.into_iter().map(|(idx, name)| FileRow::File { idx, name: name.to_string(), depth }));
+        out.extend(files.into_iter().map(|(idx, name)| FileRow::File {
+            idx,
+            name: name.to_string(),
+            depth,
+        }));
     }
 
     /// The shared priority of `ids`, or None if they differ.
     pub fn priority(&self, ids: &[usize]) -> Option<i64> {
         let files = self.files.as_ref()?;
         let first = files.get(*ids.first()?)?.priority;
-        ids.iter().all(|&i| files[i].priority == first).then_some(first)
+        ids.iter()
+            .all(|&i| files[i].priority == first)
+            .then_some(first)
     }
 }
 
@@ -465,7 +511,10 @@ impl App {
         match msg {
             Msg::Prefs(p) => self.prefs = Some(p),
             Msg::Data(torrents, transfer, categories, tags) => {
-                self.category_paths = categories.iter().map(|c| (c.name.clone(), c.save_path.clone())).collect();
+                self.category_paths = categories
+                    .iter()
+                    .map(|c| (c.name.clone(), c.save_path.clone()))
+                    .collect();
                 self.tags = tags;
                 if !self.connected {
                     self.status = None;
@@ -475,7 +524,11 @@ impl App {
                 self.transfer = transfer;
                 self.categories = [Category::All, Category::None]
                     .into_iter()
-                    .chain(categories.into_iter().map(|c: CategoryInfo| Category::Named(c.name)))
+                    .chain(
+                        categories
+                            .into_iter()
+                            .map(|c: CategoryInfo| Category::Named(c.name)),
+                    )
                     .collect();
                 if !self.categories.contains(&self.category) {
                     self.category = Category::All;
@@ -514,7 +567,10 @@ impl App {
     }
 
     pub fn selected(&self) -> Option<&Torrent> {
-        self.table.selected().and_then(|i| self.view.get(i)).map(|&i| &self.torrents[i])
+        self.table
+            .selected()
+            .and_then(|i| self.view.get(i))
+            .map(|&i| &self.torrents[i])
     }
 
     fn rebuild_view(&mut self) {
@@ -580,7 +636,10 @@ impl App {
     }
 
     pub fn category_index(&self) -> usize {
-        self.categories.iter().position(|c| c == &self.category).unwrap_or(0)
+        self.categories
+            .iter()
+            .position(|c| c == &self.category)
+            .unwrap_or(0)
     }
 
     fn move_category(&mut self, delta: isize) {
@@ -591,7 +650,10 @@ impl App {
     }
 
     pub fn tag_index(&self) -> usize {
-        self.tag_filters.iter().position(|t| t == &self.tag).unwrap_or(0)
+        self.tag_filters
+            .iter()
+            .position(|t| t == &self.tag)
+            .unwrap_or(0)
     }
 
     fn move_tag(&mut self, delta: isize) {
@@ -603,7 +665,10 @@ impl App {
 
     fn cycle_filter(&mut self, delta: isize) {
         let n = Filter::ALL.len() as isize;
-        let i = Filter::ALL.iter().position(|&f| f == self.filter).unwrap_or(0) as isize;
+        let i = Filter::ALL
+            .iter()
+            .position(|&f| f == self.filter)
+            .unwrap_or(0) as isize;
         self.filter = Filter::ALL[(i + delta).rem_euclid(n) as usize];
         self.rebuild_view();
     }
@@ -620,7 +685,11 @@ impl App {
             }
             Mode::Files(_) => {
                 if let MouseEventKind::ScrollDown | MouseEventKind::ScrollUp = ev.kind {
-                    self.files_move(if ev.kind == MouseEventKind::ScrollDown { 3 } else { -3 });
+                    self.files_move(if ev.kind == MouseEventKind::ScrollDown {
+                        3
+                    } else {
+                        -3
+                    });
                 }
                 return;
             }
@@ -645,20 +714,26 @@ impl App {
                 } else if in_sidebar {
                     // Inside the border, offset by however far the list has scrolled.
                     let row = (pos.y as usize).checked_sub(self.hit.sidebar.y as usize + 1);
-                    if let Some(c) = row.and_then(|r| self.categories.get(r + self.sidebar.offset())) {
+                    if let Some(c) =
+                        row.and_then(|r| self.categories.get(r + self.sidebar.offset()))
+                    {
                         self.category = c.clone();
                         self.rebuild_view();
                     }
                 } else if in_tags {
                     let row = (pos.y as usize).checked_sub(self.hit.tags.y as usize + 1);
-                    if let Some(t) = row.and_then(|r| self.tag_filters.get(r + self.tag_list.offset())) {
+                    if let Some(t) =
+                        row.and_then(|r| self.tag_filters.get(r + self.tag_list.offset()))
+                    {
                         self.tag = t.clone();
                         self.rebuild_view();
                     }
                 } else if in_table {
                     // Skip the top border and the header row.
                     let row = (pos.y as usize).checked_sub(self.hit.table.y as usize + 2);
-                    let idx = row.map(|r| r + self.table.offset()).filter(|&i| i < self.view.len());
+                    let idx = row
+                        .map(|r| r + self.table.offset())
+                        .filter(|&i| i < self.view.len());
                     if let Some(i) = idx {
                         self.select(i);
                         if button == MouseButton::Right {
@@ -679,7 +754,9 @@ impl App {
         if !self.marked.is_empty() {
             return self.marked.iter().cloned().collect();
         }
-        self.selected().map(|t| vec![t.hash.clone()]).unwrap_or_default()
+        self.selected()
+            .map(|t| vec![t.hash.clone()])
+            .unwrap_or_default()
     }
 
     fn send(&self, cmd: Cmd) {
@@ -733,11 +810,19 @@ impl App {
     pub fn effective_save_path(&self, category: Option<&str>) -> Option<(String, &'static str)> {
         let prefs = self.prefs.as_ref()?;
         // The server may run on Windows: keep its separator and recognize drive and UNC paths.
-        let sep = if prefs.save_path.contains('\\') { '\\' } else { '/' };
+        let sep = if prefs.save_path.contains('\\') {
+            '\\'
+        } else {
+            '/'
+        };
         let default = prefs.save_path.trim_end_matches(['/', '\\']);
         match category {
             Some(cat) if prefs.auto_tmm_enabled => {
-                let own = self.category_paths.get(cat).map(String::as_str).unwrap_or("");
+                let own = self
+                    .category_paths
+                    .get(cat)
+                    .map(String::as_str)
+                    .unwrap_or("");
                 let path = if own.starts_with(['/', '\\']) || own.as_bytes().get(1) == Some(&b':') {
                     own.to_string()
                 } else if own.is_empty() {
@@ -802,8 +887,12 @@ impl App {
     }
 
     fn add_key(&mut self, key: KeyEvent) {
-        let Mode::Add(mut form) = std::mem::replace(&mut self.mode, Mode::Normal) else { return };
-        let modified = key.modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT);
+        let Mode::Add(mut form) = std::mem::replace(&mut self.mode, Mode::Normal) else {
+            return;
+        };
+        let modified = key
+            .modifiers
+            .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT);
         match key.code {
             KeyCode::Esc => return,
             KeyCode::Enter => {
@@ -812,7 +901,9 @@ impl App {
                     form.field = AddField::Source;
                     self.set_status("Enter a magnet link, URL or .torrent path".into(), true);
                 } else {
-                    if looks_like_path(source) && !std::path::Path::new(&expand_tilde(source)).is_file() {
+                    if looks_like_path(source)
+                        && !std::path::Path::new(&expand_tilde(source)).is_file()
+                    {
                         form.field = AddField::Source;
                         self.set_status(format!("Not a file: {source}"), true);
                         self.mode = Mode::Add(form);
@@ -863,7 +954,10 @@ impl App {
                     Category::Named(n) => Some(Some(n.clone())),
                     _ => None,
                 }));
-                let i = choices.iter().position(|c| *c == form.category).unwrap_or(0) as isize;
+                let i = choices
+                    .iter()
+                    .position(|c| *c == form.category)
+                    .unwrap_or(0) as isize;
                 let back = matches!(key.code, KeyCode::Left | KeyCode::Char('k'));
                 let next = (i + if back { -1 } else { 1 }).rem_euclid(choices.len() as isize);
                 form.category = choices[next as usize].clone();
@@ -913,7 +1007,12 @@ impl App {
         let targets = self.targets();
         let Some(first) = targets.first() else { return };
         // Start on the category the (first) target is already in.
-        let current = self.torrents.iter().find(|t| &t.hash == first).map(|t| t.category.clone()).unwrap_or_default();
+        let current = self
+            .torrents
+            .iter()
+            .find(|t| &t.hash == first)
+            .map(|t| t.category.clone())
+            .unwrap_or_default();
         let idx = self
             .picker_options("")
             .iter()
@@ -923,11 +1022,17 @@ impl App {
                 PickOption::Create(_) => false,
             })
             .unwrap_or(0);
-        self.mode = Mode::Recategorize(Picker { targets, filter: String::new(), idx });
+        self.mode = Mode::Recategorize(Picker {
+            targets,
+            filter: String::new(),
+            idx,
+        });
     }
 
     fn picker_key(&mut self, key: KeyEvent) {
-        let Mode::Recategorize(mut p) = std::mem::replace(&mut self.mode, Mode::Normal) else { return };
+        let Mode::Recategorize(mut p) = std::mem::replace(&mut self.mode, Mode::Normal) else {
+            return;
+        };
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
         let len = self.picker_options(&p.filter).len();
         match key.code {
@@ -954,7 +1059,11 @@ impl App {
                 p.filter.clear();
                 p.idx = 0;
             }
-            KeyCode::Char(c) if !key.modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) => {
+            KeyCode::Char(c)
+                if !key
+                    .modifiers
+                    .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
+            {
                 p.filter.push(c);
                 p.idx = 0;
             }
@@ -979,13 +1088,30 @@ impl App {
         tags.sort_by_key(|t| t.to_lowercase());
         let state = counts
             .into_iter()
-            .map(|(tag, n)| (tag, if n == targets.len() { Check::All } else { Check::Some }))
+            .map(|(tag, n)| {
+                (
+                    tag,
+                    if n == targets.len() {
+                        Check::All
+                    } else {
+                        Check::Some
+                    },
+                )
+            })
             .collect();
-        self.mode = Mode::Tag(TagPicker { targets, filter: String::new(), idx: 0, tags, state });
+        self.mode = Mode::Tag(TagPicker {
+            targets,
+            filter: String::new(),
+            idx: 0,
+            tags,
+            state,
+        });
     }
 
     fn tag_key(&mut self, key: KeyEvent) {
-        let Mode::Tag(mut p) = std::mem::replace(&mut self.mode, Mode::Normal) else { return };
+        let Mode::Tag(mut p) = std::mem::replace(&mut self.mode, Mode::Normal) else {
+            return;
+        };
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
         let len = p.options().len().max(1);
         match key.code {
@@ -995,7 +1121,8 @@ impl App {
                     // Partially or un-tagged → tag all; fully tagged → untag all.
                     let add = p.check(&tag) != Check::All;
                     self.send(Cmd::Tag(p.targets.clone(), tag.clone(), add));
-                    p.state.insert(tag, if add { Check::All } else { Check::None });
+                    p.state
+                        .insert(tag, if add { Check::All } else { Check::None });
                 }
                 Some(Err(new)) => {
                     self.send(Cmd::Tag(p.targets.clone(), new.clone(), true));
@@ -1003,7 +1130,11 @@ impl App {
                     p.tags.sort_by_key(|t| t.to_lowercase());
                     p.state.insert(new.clone(), Check::All);
                     p.filter.clear();
-                    p.idx = p.options().iter().position(|o| o.as_ref() == Ok(&new)).unwrap_or(0);
+                    p.idx = p
+                        .options()
+                        .iter()
+                        .position(|o| o.as_ref() == Ok(&new))
+                        .unwrap_or(0);
                 }
                 None => {}
             },
@@ -1019,7 +1150,11 @@ impl App {
                 p.filter.clear();
                 p.idx = 0;
             }
-            KeyCode::Char(c) if !key.modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) => {
+            KeyCode::Char(c)
+                if !key
+                    .modifiers
+                    .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
+            {
                 p.filter.push(c);
                 p.idx = 0;
             }
@@ -1042,18 +1177,23 @@ impl App {
     }
 
     fn files_move(&mut self, delta: isize) {
-        let Mode::Files(v) = &mut self.mode else { return };
+        let Mode::Files(v) = &mut self.mode else {
+            return;
+        };
         let len = v.rows().len();
         if len == 0 {
             return;
         }
         let cur = v.table.selected().unwrap_or(0) as isize;
-        v.table.select(Some((cur + delta).clamp(0, len as isize - 1) as usize));
+        v.table
+            .select(Some((cur + delta).clamp(0, len as isize - 1) as usize));
     }
 
     /// Apply a priority locally right away and send it to qBittorrent.
     fn set_file_priority(&mut self, ids: Vec<usize>, priority: i64) {
-        let Mode::Files(v) = &mut self.mode else { return };
+        let Mode::Files(v) = &mut self.mode else {
+            return;
+        };
         let Some(files) = &mut v.files else { return };
         for &i in &ids {
             files[i].priority = priority;
@@ -1063,13 +1203,17 @@ impl App {
     }
 
     fn files_key(&mut self, key: KeyEvent) {
-        let Mode::Files(v) = &mut self.mode else { return };
+        let Mode::Files(v) = &mut self.mode else {
+            return;
+        };
         let rows = v.rows();
         let sel = v.table.selected().and_then(|i| rows.get(i).map(|r| (i, r)));
         match key.code {
             KeyCode::Esc | KeyCode::Char('q') => self.close_files(),
             KeyCode::Right | KeyCode::Enter if matches!(sel, Some((_, FileRow::Folder { .. }))) => {
-                let Some((_, FileRow::Folder { path, open, .. })) = sel else { return };
+                let Some((_, FileRow::Folder { path, open, .. })) = sel else {
+                    return;
+                };
                 if *open && key.code == KeyCode::Enter {
                     v.collapsed.insert(path.clone());
                 } else {
@@ -1078,7 +1222,12 @@ impl App {
             }
             // Fold the folder under the cursor, else step out to the parent folder, else close.
             KeyCode::Left => match sel {
-                Some((_, FileRow::Folder { path, open: true, .. })) => {
+                Some((
+                    _,
+                    FileRow::Folder {
+                        path, open: true, ..
+                    },
+                )) => {
                     v.collapsed.insert(path.clone());
                 }
                 Some((i, row)) if row.depth() > 0 => {
@@ -1098,8 +1247,15 @@ impl App {
                 let ids = row.files();
                 let files = v.files.as_ref().expect("rows imply files");
                 let current = ids.iter().map(|&i| files[i].priority).max().unwrap_or(1);
-                let level = FILE_PRIORITIES.iter().position(|&p| p >= current).unwrap_or(1);
-                let level = if c == '-' { level.saturating_sub(1) } else { (level + 1).min(FILE_PRIORITIES.len() - 1) };
+                let level = FILE_PRIORITIES
+                    .iter()
+                    .position(|&p| p >= current)
+                    .unwrap_or(1);
+                let level = if c == '-' {
+                    level.saturating_sub(1)
+                } else {
+                    (level + 1).min(FILE_PRIORITIES.len() - 1)
+                };
                 self.set_file_priority(ids, FILE_PRIORITIES[level]);
             }
             KeyCode::Down | KeyCode::Char('j') => self.files_move(1),
@@ -1171,9 +1327,16 @@ impl App {
                     return;
                 }
                 let all_paused = targets.iter().all(|h| {
-                    self.torrents.iter().find(|t| &t.hash == h).is_some_and(|t| t.is_paused())
+                    self.torrents
+                        .iter()
+                        .find(|t| &t.hash == h)
+                        .is_some_and(|t| t.is_paused())
                 });
-                self.send(if all_paused { Cmd::Resume(targets) } else { Cmd::Pause(targets) });
+                self.send(if all_paused {
+                    Cmd::Resume(targets)
+                } else {
+                    Cmd::Pause(targets)
+                });
             }
             KeyCode::Char('d') | KeyCode::Delete => {
                 if !self.targets().is_empty() {
@@ -1202,7 +1365,9 @@ impl App {
 
 /// Expand a leading `~`, alone or before a path separator, to the home directory.
 pub fn expand_tilde(s: &str) -> String {
-    let Some(rest) = s.strip_prefix('~') else { return s.to_string() };
+    let Some(rest) = s.strip_prefix('~') else {
+        return s.to_string();
+    };
     match (rest.chars().next(), std::env::home_dir()) {
         (None, Some(home)) => home.display().to_string(),
         (Some(c), Some(home)) if std::path::is_separator(c) => format!("{}{rest}", home.display()),

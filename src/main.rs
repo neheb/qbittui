@@ -8,7 +8,8 @@ mod worker;
 use anyhow::Result;
 use clap::Parser;
 use crossterm::event::{
-    self, DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture, Event, KeyEventKind,
+    self, DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture,
+    Event, KeyEventKind,
 };
 use std::path::PathBuf;
 use std::sync::mpsc;
@@ -61,19 +62,31 @@ fn main() -> Result<()> {
         (None, None) => config::Config::default(),
     };
 
-    let url = args.url.or(cfg.url).unwrap_or_else(|| "http://localhost:8080".into());
-    let username = args.username.or(cfg.username).unwrap_or_else(|| "admin".into());
+    let url = args
+        .url
+        .or(cfg.url)
+        .unwrap_or_else(|| "http://localhost:8080".into());
+    let username = args
+        .username
+        .or(cfg.username)
+        .unwrap_or_else(|| "admin".into());
     let password = match (args.password.or(cfg.password), cfg.password_command) {
         (Some(p), _) => p,
         (None, Some(cmd)) => config::run_password_command(&cmd)?,
         (None, None) => String::new(),
     };
     let interval = args.interval.or(cfg.interval).unwrap_or(2.0);
-    let torrent_dir = args.torrent_dir.or(cfg.torrent_dir).unwrap_or_else(|| "~/Downloads/".into());
+    let torrent_dir = args
+        .torrent_dir
+        .or(cfg.torrent_dir)
+        .unwrap_or_else(|| "~/Downloads/".into());
     let mouse = !args.no_mouse && cfg.mouse.unwrap_or(true);
 
     let tls = api::Tls {
-        ca_cert: args.ca_cert.or(cfg.ca_cert).map(|p| PathBuf::from(app::expand_tilde(&p))),
+        ca_cert: args
+            .ca_cert
+            .or(cfg.ca_cert)
+            .map(|p| PathBuf::from(app::expand_tilde(&p))),
         insecure: args.insecure || cfg.insecure.unwrap_or(false),
     };
     let client = api::Client::new(&url, &username, &password, &tls)?;
