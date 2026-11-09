@@ -79,6 +79,7 @@ pub struct TorrentFile {
 }
 
 /// A torrent to add: magnet link, URL or local .torrent file, plus where it goes.
+#[cfg_attr(test, derive(Debug, PartialEq))]
 pub struct NewTorrent {
     pub source: String,
     pub category: Option<String>,
@@ -327,4 +328,217 @@ fn version_at_least(version: &str, (major, minor): (u32, u32)) -> bool {
     let mut parts = version.split('.').map(|p| p.parse::<u32>().unwrap_or(0));
     let v = (parts.next().unwrap_or(0), parts.next().unwrap_or(0));
     v >= (major, minor)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::testutil::{Seen, serve};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::mpsc::Receiver;
+
+    pub(crate) fn client(base: &str, tls: &Tls) -> Client {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        // A trailing slash on the URL must not double up in request paths.
+        Client::new(&format!("{base}/"), "admin", "s3cret&x", tls).unwrap()
+    }
+
+    /// A WebUI that accepts any login and reports `version` as its API version.
+    fn webui(version: &'static str) -> (String, Receiver<Seen>) {
+        serve(None, move |_, path| match path {
+            "/api/v2/auth/login" => (200, "Ok."),
+            "/api/v2/app/webapiVersion" => (200, version),
+            _ => (200, ""),
+        })
+    }
+
+    fn requests(rx: &Receiver<Seen>) -> Vec<String> {
+        rx.try_iter()
+            .map(|(method, path, body)| format!("{method} {path} {body}").trim_end().to_string())
+            .collect()
+    }
+
+    #[test]
+    fn qbittorrent_5_uses_stop_and_start() {
+        let (base, rx) = webui("2.11.4");
+        let mut c = client(&base, &Tls::default());
+        c.login().unwrap();
+        c.pause(&["a".into(), "b".into()]).unwrap();
+        c.resume(&["a".into()]).unwrap();
+        assert_eq!(
+            requests(&rx),
+            [
+                "POST /api/v2/auth/login username=admin&password=s3cret%26x",
+                "GET /api/v2/app/webapiVersion",
+                "POST /api/v2/torrents/stop hashes=a%7Cb",
+                "POST /api/v2/torrents/start hashes=a",
+            ]
+        );
+    }
+
+    #[test]
+    fn qbittorrent_4_uses_pause_and_resume() {
+        let (base, rx) = webui("2.8.19");
+        let mut c = client(&base, &Tls::default());
+        c.login().unwrap();
+        c.pause(&["a".into()]).unwrap();
+        c.resume(&["a".into()]).unwrap();
+        let reqs = requests(&rx);
+        assert_eq!(
+            reqs[2..],
+            [
+                "POST /api/v2/torrents/pause hashes=a",
+                "POST /api/v2/torrents/resume hashes=a"
+            ]
+        );
+    }
+
+    #[test]
+    fn torrent_actions_send_their_parameters() {
+        let (base, rx) = webui("2.11.4");
+        let mut c = client(&base, &Tls::default());
+        let h = ["a".to_string()];
+        c.delete(&h, true).unwrap();
+        c.set_category(&h, "TV").unwrap();
+        c.create_category("New Cat").unwrap();
+        c.add_tag(&h, "hd").unwrap();
+        c.remove_tag(&h, "hd").unwrap();
+        c.file_prio("a", &[0, 2], 6).unwrap();
+        c.recheck(&h).unwrap();
+        c.reannounce(&h).unwrap();
+        assert_eq!(
+            requests(&rx),
+            [
+                "POST /api/v2/torrents/delete hashes=a&deleteFiles=true",
+                "POST /api/v2/torrents/setCategory hashes=a&category=TV",
+                "POST /api/v2/torrents/createCategory category=New+Cat&savePath=",
+                "POST /api/v2/torrents/addTags hashes=a&tags=hd",
+                "POST /api/v2/torrents/removeTags hashes=a&tags=hd",
+                "POST /api/v2/torrents/filePrio hash=a&id=0%7C2&priority=6",
+                "POST /api/v2/torrents/recheck hashes=a",
+                "POST /api/v2/torrents/reannounce hashes=a",
+            ]
+        );
+    }
+
+    #[test]
+    fn adding_a_magnet_sends_urls_and_options() {
+        let (base, rx) = webui("2.11.4");
+        let mut c = client(&base, &Tls::default());
+        c.add(&NewTorrent {
+            source: "magnet:?xt=urn:btih:abc".into(),
+            category: Some("TV".into()),
+            save_path: "/srv/tv".into(),
+        })
+        .unwrap();
+        let (method, path, body) = rx.try_recv().unwrap();
+        assert_eq!(
+            (method.as_str(), path.as_str()),
+            ("POST", "/api/v2/torrents/add")
+        );
+        for part in [
+            "name=\"urls\"\r\n\r\nmagnet:?xt=urn:btih:abc\r\n",
+            "name=\"category\"\r\n\r\nTV\r\n",
+            "name=\"savepath\"\r\n\r\n/srv/tv\r\n",
+        ] {
+            assert!(body.contains(part), "{part:?} missing from {body}");
+        }
+    }
+
+    #[test]
+    fn adding_a_file_uploads_it() {
+        let dir = crate::testutil::TempDir::new("upload");
+        let path = dir.path().join("x.torrent");
+        std::fs::write(&path, "d8:announce0:e").unwrap();
+        let (base, rx) = webui("2.11.4");
+        let mut c = client(&base, &Tls::default());
+        c.add(&NewTorrent {
+            source: path.display().to_string(),
+            category: None,
+            save_path: String::new(),
+        })
+        .unwrap();
+        let (_, _, body) = rx.try_recv().unwrap();
+        assert!(body.contains("name=\"torrents\"; filename=\"x.torrent\""));
+        assert!(body.contains("Content-Type: application/x-bittorrent\r\n\r\nd8:announce0:e"));
+        assert!(!body.contains("category") && !body.contains("savepath"));
+    }
+
+    #[test]
+    fn bad_credentials_are_reported() {
+        let (base, _rx) = serve(None, |_, _| (200, "Fails."));
+        let err = client(&base, &Tls::default()).login().unwrap_err();
+        assert_eq!(err.to_string(), "login failed: bad username or password");
+
+        let (base, _rx) = serve(None, |_, _| (403, "banned"));
+        let err = client(&base, &Tls::default()).login().unwrap_err();
+        assert_eq!(err.to_string(), "login failed: HTTP 403 Forbidden banned");
+    }
+
+    #[test]
+    fn an_expired_session_logs_in_again() {
+        let calls = AtomicUsize::new(0);
+        let (base, rx) = serve(None, move |_, path| match path {
+            "/api/v2/torrents/info" if calls.fetch_add(1, Ordering::Relaxed) == 0 => (403, ""),
+            "/api/v2/torrents/info" => (
+                200,
+                r#"[{"hash":"h1","name":"One","state":"stoppedDL","size":5,"future_field":[1]}]"#,
+            ),
+            "/api/v2/auth/login" => (200, "Ok."),
+            "/api/v2/app/webapiVersion" => (200, "2.11.4"),
+            _ => (404, ""),
+        });
+        let mut c = client(&base, &Tls::default());
+        let torrents = c.torrents().unwrap();
+        assert_eq!(torrents.len(), 1);
+        assert_eq!((torrents[0].name.as_str(), torrents[0].size), ("One", 5));
+        assert!(torrents[0].is_paused());
+        assert_eq!(torrents[0].ratio, 0.0, "missing fields default");
+        let paths: Vec<String> = rx.try_iter().map(|(_, path, _)| path).collect();
+        assert_eq!(
+            paths,
+            [
+                "/api/v2/torrents/info",
+                "/api/v2/auth/login",
+                "/api/v2/app/webapiVersion",
+                "/api/v2/torrents/info"
+            ]
+        );
+    }
+
+    #[test]
+    fn other_http_errors_are_reported() {
+        let (base, _rx) = serve(None, |_, _| (500, ""));
+        let err = client(&base, &Tls::default()).transfer().unwrap_err();
+        assert_eq!(err.to_string(), "HTTP 500 Internal Server Error");
+    }
+
+    #[test]
+    fn categories_and_tags_come_back_sorted() {
+        let (base, _rx) = serve(None, |_, path| match path {
+            "/api/v2/torrents/categories" => (
+                200,
+                r#"{"tv":{"name":"tv","savePath":"/tv"},"Movies":{"name":"Movies","savePath":""}}"#,
+            ),
+            "/api/v2/torrents/tags" => (200, r#"["b","A","c"]"#),
+            _ => (404, ""),
+        });
+        let mut c = client(&base, &Tls::default());
+        let cats = c.categories().unwrap();
+        let cats: Vec<_> = cats
+            .iter()
+            .map(|c| (c.name.as_str(), c.save_path.as_str()))
+            .collect();
+        assert_eq!(cats, [("Movies", ""), ("tv", "/tv")]);
+        assert_eq!(c.tags().unwrap(), ["A", "b", "c"]);
+    }
+
+    #[test]
+    fn version_comparison() {
+        assert!(version_at_least("2.11.4", (2, 11)));
+        assert!(version_at_least("3.0", (2, 11)));
+        assert!(!version_at_least("2.10.9", (2, 11)));
+        assert!(!version_at_least("2", (2, 11)));
+        assert!(!version_at_least("", (2, 11)));
+    }
 }

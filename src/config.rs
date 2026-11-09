@@ -74,3 +74,76 @@ pub fn run_password_command(cmd: &str) -> Result<String> {
     let text = String::from_utf8(out.stdout).context("password_command output is not UTF-8")?;
     Ok(text.trim_end_matches(['\r', '\n']).to_string())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::testutil::TempDir;
+
+    fn load_str(dir: &TempDir, text: &str) -> Result<Config> {
+        let path = dir.path().join("config.toml");
+        std::fs::write(&path, text).unwrap();
+        load(&path, true)
+    }
+
+    #[test]
+    fn a_missing_file_is_only_an_error_when_named() {
+        let dir = TempDir::new("config-missing");
+        let path = dir.path().join("config.toml");
+        assert!(load(&path, false).unwrap().url.is_none());
+        let err = load(&path, true).unwrap_err();
+        assert!(err.to_string().starts_with("reading"), "{err}");
+    }
+
+    #[test]
+    fn every_key_parses() {
+        let dir = TempDir::new("config-full");
+        let c = load_str(
+            &dir,
+            r#"
+                url = "http://nas:8080"
+                username = "admin"
+                password = "secret"
+                password_command = "pass show qbittorrent"
+                interval = 0.5
+                torrent_dir = "~/Downloads/"
+                mouse = false
+                ca_cert = "~/webui.pem"
+                insecure = true
+            "#,
+        )
+        .unwrap();
+        assert_eq!(c.url.as_deref(), Some("http://nas:8080"));
+        assert_eq!(c.username.as_deref(), Some("admin"));
+        assert_eq!(c.password.as_deref(), Some("secret"));
+        assert_eq!(c.password_command.as_deref(), Some("pass show qbittorrent"));
+        assert_eq!(c.interval, Some(0.5));
+        assert_eq!(c.torrent_dir.as_deref(), Some("~/Downloads/"));
+        assert_eq!(c.mouse, Some(false));
+        assert_eq!(c.ca_cert.as_deref(), Some("~/webui.pem"));
+        assert_eq!(c.insecure, Some(true));
+        assert!(
+            load_str(&dir, "").unwrap().url.is_none(),
+            "every key is optional"
+        );
+    }
+
+    #[test]
+    fn typos_and_wrong_types_are_errors() {
+        let dir = TempDir::new("config-bad");
+        let err = load_str(&dir, "usrname = \"admin\"").unwrap_err();
+        assert!(
+            format!("{err:#}").contains("unknown field `usrname`"),
+            "{err:#}"
+        );
+        let err = load_str(&dir, "interval = \"fast\"").unwrap_err();
+        assert!(format!("{err:#}").contains("interval"), "{err:#}");
+    }
+
+    #[test]
+    fn password_command_output_is_the_password() {
+        assert_eq!(run_password_command("echo hunter2").unwrap(), "hunter2");
+        let err = run_password_command("exit 3").unwrap_err();
+        assert!(err.to_string().contains("failed"), "{err}");
+    }
+}

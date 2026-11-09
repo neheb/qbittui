@@ -4,6 +4,7 @@ use crate::api::{CategoryInfo, Client, NewTorrent, Prefs, Torrent, TorrentFile, 
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender};
 use std::time::Duration;
 
+#[cfg_attr(test, derive(Debug, PartialEq))]
 pub enum Cmd {
     Refresh,
     /// Re-read preferences (default save path may have changed).
@@ -153,5 +154,14 @@ fn n(hashes: &[String]) -> String {
     match hashes.len() {
         1 => "1 torrent".into(),
         k => format!("{k} torrents"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn torrent_counts() {
+        assert_eq!(super::n(&["a".into()]), "1 torrent");
+        assert_eq!(super::n(&["a".into(), "b".into()]), "2 torrents");
     }
 }

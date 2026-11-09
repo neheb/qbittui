@@ -1376,3 +1376,932 @@ pub fn expand_tilde(s: &str) -> String {
         _ => s.to_string(),
     }
 }
+
+#[cfg(test)]
+pub(crate) mod tests {
+    use super::*;
+    use crate::testutil::TempDir;
+    use std::path::MAIN_SEPARATOR as SEP;
+    use std::sync::mpsc::{self, Receiver};
+
+    pub(crate) fn torrent(hash: &str, name: &str, state: &str) -> Torrent {
+        Torrent {
+            hash: hash.into(),
+            name: name.into(),
+            state: state.into(),
+            ..Default::default()
+        }
+    }
+
+    fn category(name: &str, save_path: &str) -> CategoryInfo {
+        CategoryInfo {
+            name: name.into(),
+            save_path: save_path.into(),
+        }
+    }
+
+    pub(crate) fn key(code: KeyCode) -> KeyEvent {
+        KeyEvent::new(code, KeyModifiers::NONE)
+    }
+
+    fn ctrl(c: char) -> KeyEvent {
+        KeyEvent::new(KeyCode::Char(c), KeyModifiers::CONTROL)
+    }
+
+    /// Type each character of `keys` as a key press.
+    pub(crate) fn press(app: &mut App, keys: &str) {
+        for c in keys.chars() {
+            app.handle_key(key(KeyCode::Char(c)));
+        }
+    }
+
+    /// An app after one refresh with `torrents`, and the receiving end of its commands.
+    fn app_with(
+        torrents: Vec<Torrent>,
+        categories: Vec<CategoryInfo>,
+        tags: &[&str],
+    ) -> (App, Receiver<Cmd>) {
+        let (tx, rx) = mpsc::channel();
+        let mut app = App::new("http://localhost:8080".into(), String::new(), tx);
+        let tags = tags.iter().map(|t| t.to_string()).collect();
+        app.handle_msg(Msg::Data(torrents, Transfer::default(), categories, tags));
+        (app, rx)
+    }
+
+    /// Three torrents with every column filled in. Newest first: aaa, ccc, bbb.
+    pub(crate) fn sample() -> (App, Receiver<Cmd>) {
+        let mut a = torrent("aaa", "Alpha", "downloading");
+        a.added_on = 3;
+        a.size = 3 << 30;
+        a.progress = 0.42;
+        a.dlspeed = 2_500_000;
+        a.eta = 3_700;
+        a.num_seeds = 4;
+        a.num_leechs = 2;
+        a.category = "Movies".into();
+        a.tags = "hd, new".into();
+        a.save_path = "/data/Movies".into();
+        let mut b = torrent("bbb", "Bravo", "pausedUP");
+        b.added_on = 1;
+        b.size = 700 << 20;
+        b.progress = 1.0;
+        b.ratio = 1.5;
+        b.tags = "hd".into();
+        let mut c = torrent(
+            "ccc",
+            "Charlie, a torrent whose name is far too long to fit in any reasonable column",
+            "stalledUP",
+        );
+        c.added_on = 2;
+        c.progress = 1.0;
+        c.upspeed = 1_000;
+        c.category = "TV".into();
+        app_with(
+            vec![a, b, c],
+            vec![category("Movies", ""), category("TV", "/tv")],
+            &["hd", "new"],
+        )
+    }
+
+    fn hashes(app: &App) -> Vec<&str> {
+        app.view
+            .iter()
+            .map(|&i| app.torrents[i].hash.as_str())
+            .collect()
+    }
+
+    fn selected(app: &App) -> Option<&str> {
+        app.selected().map(|t| t.hash.as_str())
+    }
+
+    fn select_hash(app: &mut App, hash: &str) {
+        let i = hashes(app).iter().position(|&h| h == hash).unwrap();
+        app.select(i);
+    }
+
+    fn strings(items: &[&str]) -> Vec<String> {
+        items.iter().map(|s| s.to_string()).collect()
+    }
+
+    /// Commands sent so far, with hash lists sorted since a marked set has no order.
+    fn sent(rx: &Receiver<Cmd>) -> Vec<Cmd> {
+        rx.try_iter()
+            .map(|mut cmd| {
+                match &mut cmd {
+                    Cmd::Pause(h)
+                    | Cmd::Resume(h)
+                    | Cmd::Delete(h, _)
+                    | Cmd::Recheck(h)
+                    | Cmd::Reannounce(h)
+                    | Cmd::SetCategory(h, ..)
+                    | Cmd::Tag(h, ..) => h.sort(),
+                    Cmd::Refresh | Cmd::Prefs | Cmd::Add(_) | Cmd::Files(_) | Cmd::FilePrio(..) => {
+                    }
+                }
+                cmd
+            })
+            .collect()
+    }
+
+    #[test]
+    fn newest_first_with_cursor_on_top() {
+        let (app, _rx) = sample();
+        assert_eq!(hashes(&app), ["aaa", "ccc", "bbb"]);
+        assert_eq!(selected(&app), Some("aaa"));
+        assert!(app.connected);
+    }
+
+    #[test]
+    fn sorting_keeps_the_cursor_on_the_same_torrent() {
+        let (mut app, _rx) = sample();
+        app.handle_key(key(KeyCode::Down));
+        assert_eq!(selected(&app), Some("ccc"));
+
+        press(&mut app, "s");
+        assert!(app.sort == Sort::Name);
+        assert_eq!(hashes(&app), ["ccc", "bbb", "aaa"]);
+        assert_eq!(selected(&app), Some("ccc"));
+        assert_eq!(app.table.selected(), Some(0));
+
+        press(&mut app, "S");
+        assert_eq!(hashes(&app), ["aaa", "bbb", "ccc"]);
+        assert_eq!(app.table.selected(), Some(2));
+    }
+
+    #[test]
+    fn sort_order_cycles_back_to_added() {
+        assert!(Sort::ORDER.iter().all(|s| !s.label().is_empty()));
+        let mut sort = Sort::Added;
+        for _ in 0..Sort::ORDER.len() {
+            sort = sort.next();
+        }
+        assert!(sort == Sort::Added);
+    }
+
+    #[test]
+    fn refresh_keeps_the_cursor_and_drops_stale_marks() {
+        let (mut app, _rx) = sample();
+        select_hash(&mut app, "ccc");
+        press(&mut app, " ");
+        assert!(app.marked.contains("ccc"));
+        assert_eq!(
+            selected(&app),
+            Some("bbb"),
+            "space moves down after marking"
+        );
+
+        let mut torrents = app.torrents.clone();
+        torrents.retain(|t| t.hash != "ccc");
+        torrents.reverse();
+        app.handle_msg(Msg::Data(
+            torrents,
+            Transfer::default(),
+            Vec::new(),
+            Vec::new(),
+        ));
+        assert_eq!(selected(&app), Some("bbb"));
+        assert!(app.marked.is_empty());
+    }
+
+    #[test]
+    fn number_keys_and_tab_pick_the_state_filter() {
+        let (mut app, _rx) = sample();
+        press(&mut app, "2");
+        assert_eq!(hashes(&app), ["aaa"]);
+        press(&mut app, "3");
+        assert_eq!(hashes(&app), ["ccc"]);
+        press(&mut app, "4");
+        assert_eq!(hashes(&app), ["bbb"]);
+        press(&mut app, "5");
+        assert_eq!(hashes(&app), ["aaa", "ccc"]);
+        press(&mut app, "6");
+        assert!(hashes(&app).is_empty());
+        assert_eq!(selected(&app), None);
+
+        app.handle_key(key(KeyCode::Tab));
+        assert!(app.filter == Filter::All, "Tab wraps from the last filter");
+        app.handle_key(key(KeyCode::BackTab));
+        assert!(app.filter == Filter::Errored);
+    }
+
+    #[test]
+    fn paused_and_errored_states() {
+        let paused = ["pausedDL", "pausedUP", "stoppedDL", "stoppedUP"];
+        assert!(paused.iter().all(|s| torrent("h", "n", s).is_paused()));
+        assert!(!torrent("h", "n", "stalledUP").is_paused());
+        assert!(Filter::Errored.matches(&torrent("h", "n", "missingFiles")));
+        assert!(!Filter::Seeding.matches(&torrent("h", "n", "stalledDL")));
+    }
+
+    #[test]
+    fn vim_keys_walk_the_category_and_tag_sidebars() {
+        let (mut app, _rx) = sample();
+        press(&mut app, "j");
+        assert!(app.category == Category::None);
+        assert_eq!(hashes(&app), ["bbb"]);
+        press(&mut app, "j");
+        assert_eq!(hashes(&app), ["aaa"]);
+        press(&mut app, "jjj");
+        assert!(
+            app.category == Category::Named("TV".into()),
+            "stops at the last"
+        );
+        assert_eq!(hashes(&app), ["ccc"]);
+        press(&mut app, "kkkkk");
+        assert!(app.category == Category::All);
+
+        press(&mut app, "J");
+        assert_eq!(hashes(&app), ["ccc"], "untagged");
+        press(&mut app, "J");
+        assert_eq!(hashes(&app), ["aaa", "bbb"], "tagged hd");
+        press(&mut app, "J");
+        assert_eq!(hashes(&app), ["aaa"], "tagged new");
+    }
+
+    #[test]
+    fn a_category_that_disappears_resets_the_sidebar() {
+        let (mut app, _rx) = sample();
+        press(&mut app, "jjj");
+        assert!(app.category == Category::Named("TV".into()));
+        let torrents = app.torrents.clone();
+        let categories = vec![category("Movies", "")];
+        app.handle_msg(Msg::Data(
+            torrents,
+            Transfer::default(),
+            categories,
+            Vec::new(),
+        ));
+        assert!(app.category == Category::All);
+        assert_eq!(hashes(&app).len(), 3);
+    }
+
+    #[test]
+    fn tags_are_split_on_commas() {
+        let mut t = torrent("h", "n", "");
+        t.tags = "hd, new,  x ,".into();
+        assert_eq!(torrent_tags(&t).collect::<Vec<_>>(), ["hd", "new", "x"]);
+        t.tags.clear();
+        assert_eq!(torrent_tags(&t).count(), 0);
+    }
+
+    #[test]
+    fn search_filters_by_name_ignoring_case() {
+        let (mut app, _rx) = sample();
+        press(&mut app, "/BRq");
+        assert!(!app.quit, "q is text while searching");
+        assert!(hashes(&app).is_empty());
+        app.handle_key(key(KeyCode::Backspace));
+        assert_eq!(hashes(&app), ["bbb"]);
+        app.handle_key(key(KeyCode::Enter));
+        assert!(matches!(app.mode, Mode::Normal));
+        assert_eq!(hashes(&app), ["bbb"], "the search stays after Enter");
+        app.handle_key(key(KeyCode::Esc));
+        assert_eq!(hashes(&app).len(), 3);
+
+        press(&mut app, "/al");
+        app.handle_paste("pha\n");
+        assert_eq!(hashes(&app), ["aaa"]);
+        app.handle_key(key(KeyCode::Esc));
+        assert!(app.search.is_empty());
+    }
+
+    #[test]
+    fn p_resumes_when_every_target_is_paused_and_pauses_otherwise() {
+        let (mut app, rx) = sample();
+        select_hash(&mut app, "bbb");
+        press(&mut app, "p");
+        select_hash(&mut app, "aaa");
+        press(&mut app, "p");
+        assert_eq!(
+            sent(&rx),
+            [
+                Cmd::Resume(strings(&["bbb"])),
+                Cmd::Pause(strings(&["aaa"]))
+            ]
+        );
+
+        // Marked torrents are the targets, wherever the cursor is.
+        press(&mut app, " ");
+        select_hash(&mut app, "bbb");
+        press(&mut app, " p");
+        assert_eq!(sent(&rx), [Cmd::Pause(strings(&["aaa", "bbb"]))]);
+        app.handle_key(key(KeyCode::Esc));
+        assert!(app.marked.is_empty());
+    }
+
+    #[test]
+    fn delete_asks_first() {
+        let (mut app, rx) = sample();
+        press(&mut app, "d");
+        assert!(matches!(app.mode, Mode::ConfirmDelete));
+        press(&mut app, "n");
+        assert!(matches!(app.mode, Mode::Normal));
+        app.handle_key(key(KeyCode::Delete));
+        press(&mut app, "y");
+        press(&mut app, "dD");
+        assert_eq!(
+            sent(&rx),
+            [
+                Cmd::Delete(strings(&["aaa"]), false),
+                Cmd::Delete(strings(&["aaa"]), true)
+            ]
+        );
+    }
+
+    #[test]
+    fn one_key_commands() {
+        let (mut app, rx) = sample();
+        press(&mut app, "cRr");
+        assert_eq!(
+            sent(&rx),
+            [
+                Cmd::Recheck(strings(&["aaa"])),
+                Cmd::Reannounce(strings(&["aaa"])),
+                Cmd::Refresh
+            ]
+        );
+        press(&mut app, "?");
+        assert!(matches!(app.mode, Mode::Help));
+        press(&mut app, "q");
+        assert!(matches!(app.mode, Mode::Normal), "any key closes help");
+        assert!(!app.quit);
+        press(&mut app, "q");
+        assert!(app.quit);
+    }
+
+    #[test]
+    fn nothing_selected_means_nothing_sent() {
+        let (mut app, rx) = app_with(Vec::new(), Vec::new(), &[]);
+        press(&mut app, "pcRdCT ");
+        app.handle_key(key(KeyCode::Right));
+        assert!(matches!(app.mode, Mode::Normal));
+        assert!(sent(&rx).is_empty());
+    }
+
+    #[test]
+    fn ctrl_c_quits_from_any_dialog() {
+        let (mut app, _rx) = sample();
+        press(&mut app, "a");
+        assert!(matches!(app.mode, Mode::Add(_)));
+        app.handle_key(ctrl('c'));
+        assert!(app.quit);
+    }
+
+    #[test]
+    fn errors_disconnect_until_the_next_refresh() {
+        let (mut app, _rx) = sample();
+        app.handle_msg(Msg::Error("boom".into()));
+        assert!(!app.connected);
+        assert!(matches!(&app.status, Some((s, true, _)) if s == "boom"));
+        let torrents = app.torrents.clone();
+        app.handle_msg(Msg::Data(
+            torrents,
+            Transfer::default(),
+            Vec::new(),
+            Vec::new(),
+        ));
+        assert!(app.connected);
+        assert!(app.status.is_none());
+    }
+
+    #[test]
+    fn mouse_clicks_select_mark_and_filter() {
+        let (mut app, _rx) = sample();
+        app.hit.table = Rect::new(20, 1, 100, 20);
+        app.hit.tabs = vec![Rect::new(20, 0, 5, 1), Rect::new(26, 0, 5, 1)];
+        let click = |button, column, row| MouseEvent {
+            kind: MouseEventKind::Down(button),
+            column,
+            row,
+            modifiers: KeyModifiers::NONE,
+        };
+        // Row 3 is the second torrent: below the table's border and header.
+        app.handle_mouse(click(MouseButton::Left, 30, 4));
+        assert_eq!(selected(&app), Some("ccc"));
+        app.handle_mouse(click(MouseButton::Right, 30, 5));
+        assert_eq!(selected(&app), Some("bbb"));
+        assert!(app.marked.contains("bbb"));
+        app.handle_mouse(click(MouseButton::Left, 30, 19));
+        assert_eq!(
+            selected(&app),
+            Some("bbb"),
+            "clicks below the last row do nothing"
+        );
+        app.handle_mouse(click(MouseButton::Left, 27, 0));
+        assert!(app.filter == Filter::Downloading);
+    }
+
+    #[test]
+    fn category_picker_options() {
+        let (app, _rx) = sample();
+        let existing = |n: &str| PickOption::Existing(n.into());
+        assert!(app.picker_options("") == [PickOption::None, existing("Movies"), existing("TV")]);
+        assert!(app.picker_options("mo") == [existing("Movies"), PickOption::Create("mo".into())]);
+        assert!(app.picker_options("MOVIES") == [existing("Movies")]);
+        assert!(app.picker_options(" tv ") == [existing("TV")]);
+    }
+
+    #[test]
+    fn category_picker_moves_torrents() {
+        let (mut app, rx) = sample();
+        press(&mut app, "C");
+        let Mode::Recategorize(p) = &app.mode else {
+            panic!("picker not open")
+        };
+        assert_eq!(p.idx, 1, "starts on the torrent's own category");
+        app.handle_key(key(KeyCode::Enter));
+        press(&mut app, "C");
+        app.handle_key(key(KeyCode::Up));
+        app.handle_key(key(KeyCode::Enter));
+        press(&mut app, "CAnime");
+        app.handle_key(key(KeyCode::Enter));
+        press(&mut app, "C");
+        app.handle_key(key(KeyCode::Esc));
+        let aaa = || strings(&["aaa"]);
+        assert_eq!(
+            sent(&rx),
+            [
+                Cmd::SetCategory(aaa(), "Movies".into(), false),
+                Cmd::SetCategory(aaa(), String::new(), false),
+                Cmd::SetCategory(aaa(), "Anime".into(), true),
+            ]
+        );
+        assert!(matches!(app.mode, Mode::Normal));
+    }
+
+    #[test]
+    fn tag_picker_toggles_tags_on_all_targets() {
+        let (mut app, rx) = sample();
+        press(&mut app, " ");
+        select_hash(&mut app, "bbb");
+        press(&mut app, " T");
+        let Mode::Tag(p) = &app.mode else {
+            panic!("tag picker not open")
+        };
+        assert!(p.check("hd") == Check::All);
+        assert!(p.check("new") == Check::Some);
+        assert!(p.check("other") == Check::None);
+
+        let both = || strings(&["aaa", "bbb"]);
+        app.handle_key(key(KeyCode::Enter));
+        press(&mut app, " ");
+        app.handle_key(key(KeyCode::Down));
+        app.handle_key(key(KeyCode::Enter));
+        press(&mut app, "4k");
+        app.handle_key(key(KeyCode::Enter));
+        assert_eq!(
+            sent(&rx),
+            [
+                Cmd::Tag(both(), "hd".into(), false),
+                Cmd::Tag(both(), "hd".into(), true),
+                Cmd::Tag(both(), "new".into(), true),
+                Cmd::Tag(both(), "4k".into(), true),
+            ]
+        );
+        let Mode::Tag(p) = &app.mode else {
+            panic!("tag picker closed")
+        };
+        assert!(p.filter.is_empty());
+        assert_eq!(p.options()[p.idx], Ok("4k".to_string()));
+        assert!(p.check("4k") == Check::All);
+    }
+
+    #[test]
+    fn effective_save_path_follows_qbittorrent() {
+        let categories = vec![
+            category("Movies", ""),
+            category("Rel", "sub/dir"),
+            category("Abs", "/srv/abs"),
+            category("Win", "E:\\win"),
+        ];
+        let (mut app, _rx) = app_with(Vec::new(), categories, &[]);
+        assert_eq!(
+            app.effective_save_path(Some("Movies")),
+            None,
+            "no preferences yet"
+        );
+
+        let prefs = |save_path: &str, auto_tmm_enabled| {
+            Msg::Prefs(Prefs {
+                save_path: save_path.into(),
+                auto_tmm_enabled,
+            })
+        };
+        let path = |app: &App, cat| app.effective_save_path(cat);
+        app.handle_msg(prefs("/data/", false));
+        let default = Some(("/data/".to_string(), "qBittorrent default"));
+        assert_eq!(path(&app, Some("Movies")), default);
+
+        app.handle_msg(prefs("/data/", true));
+        let cat = |p: &str| Some((p.to_string(), "category"));
+        assert_eq!(path(&app, None), default);
+        assert_eq!(path(&app, Some("Movies")), cat("/data/Movies"));
+        assert_eq!(path(&app, Some("Rel")), cat("/data/sub/dir"));
+        assert_eq!(path(&app, Some("Abs")), cat("/srv/abs"));
+
+        app.handle_msg(prefs("D:\\dl\\", true));
+        assert_eq!(path(&app, Some("Movies")), cat("D:\\dl\\Movies"));
+        assert_eq!(path(&app, Some("Win")), cat("E:\\win"));
+    }
+
+    #[test]
+    fn add_form_sends_a_magnet_link() {
+        let (mut app, rx) = sample();
+        press(&mut app, "jj");
+        press(&mut app, "a");
+        let Mode::Add(form) = &app.mode else {
+            panic!("add form not open")
+        };
+        assert_eq!(
+            form.category.as_deref(),
+            Some("Movies"),
+            "taken from the sidebar"
+        );
+        press(&mut app, "magnet:?xt=urn:btih:jk");
+        app.handle_key(key(KeyCode::Down));
+        app.handle_key(key(KeyCode::Right));
+        app.handle_key(key(KeyCode::Enter));
+        assert!(matches!(app.mode, Mode::Normal));
+        assert_eq!(
+            sent(&rx),
+            [
+                Cmd::Prefs,
+                Cmd::Add(NewTorrent {
+                    source: "magnet:?xt=urn:btih:jk".into(),
+                    category: Some("TV".into()),
+                    save_path: String::new(),
+                })
+            ]
+        );
+    }
+
+    #[test]
+    fn add_form_category_cycles_through_none() {
+        let (mut app, _rx) = sample();
+        press(&mut app, "a");
+        app.handle_key(key(KeyCode::Tab));
+        let category = |app: &App| match &app.mode {
+            Mode::Add(form) => form.category.clone(),
+            _ => panic!("add form closed"),
+        };
+        press(&mut app, "j");
+        assert_eq!(category(&app).as_deref(), Some("Movies"));
+        app.handle_key(key(KeyCode::Left));
+        press(&mut app, "k");
+        assert_eq!(category(&app).as_deref(), Some("TV"), "wraps around");
+    }
+
+    #[test]
+    fn add_form_needs_a_source_and_an_existing_file() {
+        let (mut app, rx) = sample();
+        press(&mut app, "a");
+        app.handle_key(key(KeyCode::Down));
+        app.handle_key(key(KeyCode::Enter));
+        let Mode::Add(form) = &app.mode else {
+            panic!("add form closed")
+        };
+        assert!(
+            form.field == AddField::Source,
+            "sent back to the empty field"
+        );
+        assert!(matches!(&app.status, Some((_, true, _))));
+
+        press(&mut app, "./no-such-file.torrent");
+        app.handle_key(key(KeyCode::Enter));
+        assert!(matches!(app.mode, Mode::Add(_)));
+        assert!(matches!(&app.status, Some((s, true, _)) if s.starts_with("Not a file")));
+        app.handle_key(key(KeyCode::Esc));
+        assert!(matches!(app.mode, Mode::Normal));
+        assert_eq!(sent(&rx), [Cmd::Prefs]);
+    }
+
+    #[test]
+    fn add_form_sends_a_local_file_and_save_path() {
+        let dir = TempDir::new("add-file");
+        let file = dir.touch("x.torrent").display().to_string();
+        let (mut app, rx) = sample();
+        app.handle_msg(Msg::Prefs(Prefs {
+            save_path: "/data".into(),
+            auto_tmm_enabled: false,
+        }));
+        press(&mut app, "a");
+        app.handle_paste(&file);
+        app.handle_key(key(KeyCode::Up));
+        app.handle_key(key(KeyCode::Right));
+        press(&mut app, "/x");
+        app.handle_key(key(KeyCode::Enter));
+        assert_eq!(
+            sent(&rx),
+            [
+                Cmd::Prefs,
+                Cmd::Add(NewTorrent {
+                    source: file,
+                    category: None,
+                    save_path: "/data/x".into(),
+                })
+            ]
+        );
+    }
+
+    #[test]
+    fn pasting_replaces_the_prefilled_directory() {
+        let (mut app, _rx) = sample();
+        app.torrent_dir = "~/Downloads".into();
+        press(&mut app, "a");
+        let source = |app: &App| match &app.mode {
+            Mode::Add(form) => form.source.clone(),
+            _ => panic!("add form closed"),
+        };
+        assert_eq!(source(&app), format!("~/Downloads{SEP}"));
+        app.handle_paste("magnet:?xt=1\r\n");
+        assert_eq!(source(&app), "magnet:?xt=1");
+        app.handle_paste("2");
+        assert_eq!(source(&app), "magnet:?xt=12", "later pastes append");
+        app.handle_key(ctrl('u'));
+        assert_eq!(source(&app), "");
+    }
+
+    /// A directory with folders, .torrent files and things completion should skip.
+    fn completion_dir(name: &str) -> TempDir {
+        let dir = TempDir::new(name);
+        for f in [
+            "movies/a.mkv",
+            "music/b.mp3",
+            "abc1.torrent",
+            "abc2.torrent",
+            "Show.TORRENT",
+            "notes.txt",
+            ".hidden.torrent",
+        ] {
+            dir.touch(f);
+        }
+        dir
+    }
+
+    fn form(source: &str) -> AddForm {
+        AddForm {
+            source: source.into(),
+            category: None,
+            save_path: String::new(),
+            field: AddField::Source,
+            prefill: String::new(),
+            completions: Vec::new(),
+            completion_idx: None,
+        }
+    }
+
+    #[test]
+    fn path_completions_list_folders_and_torrents() {
+        let dir = completion_dir("completions");
+        let p = dir.prefix();
+        let names = |input: &str| -> Vec<String> {
+            path_completions(input)
+                .into_iter()
+                .map(|c| c.strip_prefix(&p).unwrap().to_string())
+                .collect()
+        };
+        assert_eq!(
+            names(&p),
+            [
+                "Show.TORRENT".to_string(),
+                "abc1.torrent".into(),
+                "abc2.torrent".into(),
+                format!("movies{SEP}"),
+                format!("music{SEP}"),
+            ]
+        );
+        assert_eq!(names(&format!("{p}.")), [".hidden.torrent"]);
+        assert_eq!(names(&format!("{p}mov")), [format!("movies{SEP}")]);
+        assert!(names(&format!("{p}zzz")).is_empty());
+        assert!(path_completions(&format!("{p}missing{SEP}")).is_empty());
+    }
+
+    #[test]
+    fn tab_extends_to_the_common_prefix_then_cycles() {
+        let dir = completion_dir("tab");
+        let p = dir.prefix();
+
+        let mut f = form(&format!("{p}mov"));
+        f.complete_source();
+        assert_eq!(
+            f.source,
+            format!("{p}movies{SEP}"),
+            "a single match is taken"
+        );
+        assert!(f.completions.is_empty());
+
+        let mut f = form(&format!("{p}a"));
+        f.complete_source();
+        assert_eq!(
+            f.source,
+            format!("{p}abc"),
+            "first Tab fills the common prefix"
+        );
+        assert_eq!(f.completion_idx, None);
+        f.complete_source();
+        assert_eq!(f.source, format!("{p}abc1.torrent"));
+        f.complete_source();
+        assert_eq!(f.source, format!("{p}abc2.torrent"));
+        f.complete_source();
+        assert_eq!(f.source, format!("{p}abc1.torrent"), "cycling wraps");
+    }
+
+    #[test]
+    fn tab_in_the_add_form_completes_from_the_torrent_dir() {
+        let dir = completion_dir("tab-keys");
+        let (mut app, _rx) = sample();
+        app.torrent_dir = dir.path().display().to_string();
+        press(&mut app, "a");
+        press(&mut app, "mu");
+        app.handle_key(key(KeyCode::Tab));
+        let Mode::Add(form) = &app.mode else {
+            panic!("add form closed")
+        };
+        assert_eq!(form.source, format!("{}music{SEP}", dir.prefix()));
+        assert!(
+            form.field == AddField::Source,
+            "Tab completes instead of moving on"
+        );
+    }
+
+    #[test]
+    fn common_prefix_respects_char_boundaries() {
+        assert_eq!(common_prefix(&strings(&["héllo", "hélas"])), "hél");
+        assert_eq!(common_prefix(&strings(&["abc", "ab"])), "ab");
+        assert_eq!(common_prefix(&strings(&["x"])), "x");
+        assert_eq!(common_prefix(&strings(&["é", "è"])), "");
+    }
+
+    #[test]
+    fn paths_versus_links() {
+        for s in ["~/a.torrent", "./a.torrent", "../a.torrent"] {
+            assert!(looks_like_path(s), "{s}");
+        }
+        assert!(looks_like_path(&std::env::temp_dir().display().to_string()));
+        for s in [
+            "magnet:?xt=urn:btih:abc",
+            "https://example.com/a.torrent",
+            "",
+        ] {
+            assert!(!looks_like_path(s), "{s}");
+        }
+    }
+
+    #[test]
+    fn tilde_expands_only_alone_or_before_a_separator() {
+        assert_eq!(expand_tilde("~other/x"), "~other/x");
+        assert_eq!(expand_tilde("/abs/~"), "/abs/~");
+        if let Some(home) = std::env::home_dir() {
+            let home = home.display().to_string();
+            assert_eq!(expand_tilde("~"), home);
+            assert_eq!(expand_tilde(&format!("~{SEP}x")), format!("{home}{SEP}x"));
+        }
+    }
+
+    fn file(name: &str, priority: i64) -> TorrentFile {
+        TorrentFile {
+            name: name.into(),
+            priority,
+            ..Default::default()
+        }
+    }
+
+    fn files() -> Vec<TorrentFile> {
+        vec![
+            file("Show/ep2.mkv", 1),
+            file("Show/ep1.mkv", 1),
+            file("Show/Subs/en.srt", 1),
+            file("readme.txt", 1),
+        ]
+    }
+
+    /// The visible tree as "depth name", folders with their files and open state.
+    fn tree(v: &FilesView) -> Vec<String> {
+        v.rows()
+            .iter()
+            .map(|r| match r {
+                FileRow::Folder {
+                    name, open, files, ..
+                } => {
+                    let sign = if *open { '-' } else { '+' };
+                    format!("{} {sign}{name} {files:?}", r.depth())
+                }
+                FileRow::File { idx, name, .. } => format!("{} {name} #{idx}", r.depth()),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn file_tree_puts_folders_first_and_folds() {
+        let mut v = FilesView {
+            hash: "h".into(),
+            name: "Show".into(),
+            files: Some(files()),
+            collapsed: HashSet::new(),
+            table: TableState::default(),
+        };
+        assert_eq!(
+            tree(&v),
+            [
+                "0 -Show [0, 1, 2]",
+                "1 -Subs [2]",
+                "2 en.srt #2",
+                "1 ep1.mkv #1",
+                "1 ep2.mkv #0",
+                "0 readme.txt #3",
+            ]
+        );
+        v.collapsed.insert("Show/Subs".into());
+        assert_eq!(tree(&v)[1..3], ["1 +Subs [2]", "1 ep1.mkv #1"]);
+        v.collapsed.insert("Show".into());
+        assert_eq!(tree(&v), ["0 +Show [0, 1, 2]", "0 readme.txt #3"]);
+
+        assert_eq!(v.priority(&[0, 1, 2]), Some(1));
+        v.files.as_mut().unwrap()[1].priority = 0;
+        assert_eq!(v.priority(&[0, 1, 2]), None);
+        assert_eq!(v.priority(&[]), None);
+    }
+
+    #[test]
+    fn files_view_sets_priorities() {
+        let (mut app, rx) = sample();
+        app.handle_key(key(KeyCode::Right));
+        press(&mut app, " ");
+        app.handle_msg(Msg::Files("other".into(), files()));
+        app.handle_msg(Msg::Files("aaa".into(), files()));
+        let h = || "aaa".to_string();
+
+        // On the Show folder: skip it all, then download it again.
+        press(&mut app, "  ");
+        // On ep1.mkv: raise to high, maximum, and no further; then lower.
+        press(&mut app, "jjj");
+        press(&mut app, "+=+-");
+        // Back on the folder, whose highest priority is now high.
+        app.handle_key(key(KeyCode::Home));
+        press(&mut app, "+");
+        assert_eq!(
+            sent(&rx),
+            [
+                Cmd::Files(Some(h())),
+                Cmd::FilePrio(h(), vec![0, 1, 2], 0),
+                Cmd::FilePrio(h(), vec![0, 1, 2], 1),
+                Cmd::FilePrio(h(), vec![1], 6),
+                Cmd::FilePrio(h(), vec![1], 7),
+                Cmd::FilePrio(h(), vec![1], 7),
+                Cmd::FilePrio(h(), vec![1], 6),
+                Cmd::FilePrio(h(), vec![0, 1, 2], 7),
+            ]
+        );
+        let Mode::Files(v) = &app.mode else {
+            panic!("files view closed")
+        };
+        assert_eq!(
+            v.priority(&[0, 1, 2]),
+            Some(7),
+            "applied locally right away"
+        );
+    }
+
+    #[test]
+    fn files_view_navigation() {
+        let (mut app, rx) = sample();
+        app.handle_key(key(KeyCode::Right));
+        app.handle_msg(Msg::Files("aaa".into(), files()));
+        let rows = |app: &App| match &app.mode {
+            Mode::Files(v) => (v.rows().len(), v.table.selected()),
+            _ => panic!("files view closed"),
+        };
+        assert_eq!(rows(&app), (6, Some(0)));
+        app.handle_key(key(KeyCode::Enter));
+        assert_eq!(rows(&app), (2, Some(0)), "Enter folds an open folder");
+        app.handle_key(key(KeyCode::Right));
+        assert_eq!(rows(&app), (6, Some(0)));
+        app.handle_key(key(KeyCode::Left));
+        assert_eq!(rows(&app), (2, Some(0)), "Left folds too");
+        app.handle_key(key(KeyCode::Enter));
+        press(&mut app, "jjjj");
+        assert_eq!(rows(&app), (6, Some(4)));
+        app.handle_key(key(KeyCode::Left));
+        assert_eq!(
+            rows(&app),
+            (6, Some(0)),
+            "Left on a file goes to its folder"
+        );
+
+        // Fewer files on refresh keep the cursor in range.
+        app.handle_key(key(KeyCode::End));
+        assert_eq!(rows(&app), (6, Some(5)));
+        app.handle_msg(Msg::Files("aaa".into(), vec![file("only.iso", 1)]));
+        assert_eq!(rows(&app), (1, Some(0)));
+
+        app.handle_key(key(KeyCode::Left));
+        assert!(
+            matches!(app.mode, Mode::Normal),
+            "Left at the top level closes"
+        );
+        assert_eq!(
+            sent(&rx),
+            [Cmd::Files(Some("aaa".into())), Cmd::Files(None)]
+        );
+    }
+}

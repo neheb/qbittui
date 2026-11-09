@@ -1,6 +1,8 @@
 mod api;
 mod app;
 mod config;
+#[cfg(test)]
+mod testutil;
 mod tls;
 mod ui;
 mod worker;

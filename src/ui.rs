@@ -1046,3 +1046,151 @@ fn fmt_age(ts: i64) -> String {
         .unwrap_or(0);
     format!("{} ago", fmt_duration((now - ts).max(0)))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::api::TorrentFile;
+    use crate::app::tests::{key, press, sample};
+    use crate::worker::Msg;
+    use crossterm::event::KeyCode;
+    use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
+
+    /// Draw at a range of terminal sizes; returns the 100x30 screen as text.
+    fn render(app: &mut App) -> String {
+        let mut text = String::new();
+        for (w, h) in [(1, 1), (10, 3), (30, 8), (60, 16), (100, 30), (250, 60)] {
+            let mut term = Terminal::new(TestBackend::new(w, h)).unwrap();
+            term.draw(|f| draw(f, app)).unwrap();
+            if w == 100 {
+                let buf = term.backend().buffer();
+                text = buf.content().iter().map(|c| c.symbol()).collect();
+            }
+        }
+        text
+    }
+
+    #[test]
+    fn every_screen_renders_at_every_size() {
+        let (mut app, _rx) = sample();
+        let screen = render(&mut app);
+        for s in [
+            "Alpha",
+            "Bravo",
+            "Charlie",
+            "Movies",
+            "hd",
+            "Downloading",
+            "42%",
+        ] {
+            assert!(screen.contains(s), "{s} missing from the main screen");
+        }
+
+        press(&mut app, " ");
+        app.handle_msg(Msg::Error("connection refused".into()));
+        assert!(render(&mut app).contains("connection refused"));
+
+        press(&mut app, "?");
+        render(&mut app);
+        app.handle_key(key(KeyCode::Esc));
+
+        press(&mut app, "/zzz");
+        render(&mut app);
+        app.handle_key(key(KeyCode::Esc));
+
+        press(&mut app, "a");
+        render(&mut app);
+        press(&mut app, "~/");
+        app.handle_key(key(KeyCode::Tab));
+        render(&mut app);
+        app.handle_key(key(KeyCode::Esc));
+
+        for dialog in ["C", "Cnew", "T", "Tnew", "d"] {
+            press(&mut app, dialog);
+            render(&mut app);
+            app.handle_key(key(KeyCode::Esc));
+        }
+
+        app.handle_key(key(KeyCode::Home));
+        app.handle_key(key(KeyCode::Right));
+        render(&mut app);
+        let file = |name: &str, priority| TorrentFile {
+            name: name.into(),
+            size: 1 << 30,
+            progress: 0.5,
+            priority,
+        };
+        let files = vec![
+            file("Alpha/a.mkv", 1),
+            file("Alpha/sub/b.srt", 0),
+            file("c.nfo", 7),
+        ];
+        app.handle_msg(Msg::Files("aaa".into(), files));
+        let screen = render(&mut app);
+        assert!(screen.contains("a.mkv") && screen.contains("Skip"));
+        app.handle_key(key(KeyCode::Esc));
+
+        press(&mut app, "6");
+        render(&mut app);
+    }
+
+    #[test]
+    fn truncate_counts_characters() {
+        assert_eq!(truncate("hello", 5), "hello");
+        assert_eq!(truncate("hello world", 5), "hell…");
+        assert_eq!(truncate("héllo wörld", 4), "hél…");
+    }
+
+    #[test]
+    fn sizes_and_speeds() {
+        assert_eq!(bytes(0), "0 B");
+        assert_eq!(bytes(1023), "1023 B");
+        assert_eq!(bytes(1024), "1.0 KiB");
+        assert_eq!(bytes(1536), "1.5 KiB");
+        assert_eq!(bytes(5 << 30), "5.0 GiB");
+        assert_eq!(bytes(i64::MAX), "8192.0 PiB");
+        assert_eq!(bytes(-5), "0 B");
+        assert_eq!(speed_or_blank(0), "");
+        assert_eq!(speed_or_blank(2048), "2.0 KiB/s");
+    }
+
+    #[test]
+    fn durations() {
+        assert_eq!(eta(0), "");
+        assert_eq!(eta(59), "59s");
+        assert_eq!(eta(61), "1m1s");
+        assert_eq!(eta(3_700), "1h1m");
+        assert_eq!(eta(90_000), "1d1h");
+        // qBittorrent reports 8640000 (100 days) for "unknown".
+        assert_eq!(eta(8_640_000), "∞");
+        assert_eq!(eta(-1), "∞");
+    }
+
+    #[test]
+    fn progress_bar_is_clamped() {
+        assert_eq!(progress_bar(0.5, 4), "██░░  50%");
+        assert_eq!(progress_bar(1.5, 2), "██ 100%");
+        assert_eq!(progress_bar(-1.0, 2), "░░   0%");
+    }
+
+    #[test]
+    fn narrow_terminals_drop_low_priority_columns_first() {
+        let all: Vec<usize> = (0..COLUMNS.len()).collect();
+        let full: u16 = COLUMNS.iter().map(|c| c.1 + 1).sum::<u16>() + MIN_NAME_WIDTH;
+        assert_eq!(visible_columns(full), all);
+        let without_peers: Vec<usize> = all.iter().copied().filter(|&i| i != 8).collect();
+        assert_eq!(visible_columns(full - 1), without_peers);
+        // Selection mark, Name, Progress and State always stay.
+        assert_eq!(visible_columns(0), [0, 1, 3, 4]);
+    }
+
+    #[test]
+    fn state_and_priority_labels() {
+        assert_eq!(state_info("stoppedUP").0, "Completed");
+        assert_eq!(state_info("forcedDL").0, "[F] Down");
+        assert_eq!(state_info("somethingNew").0, "Unknown");
+        assert_eq!(file_priority(0).0, "Skip");
+        assert_eq!(file_priority(4).0, "Normal");
+    }
+}
