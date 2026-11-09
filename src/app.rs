@@ -840,7 +840,7 @@ impl App {
         self.send(Cmd::Prefs);
         let category = match &self.category {
             Category::Named(n) => Some(n.clone()),
-            _ => None,
+            Category::All | Category::None => None,
         };
         let mut dir = self.torrent_dir.clone();
         if !dir.is_empty() && !dir.ends_with(std::path::is_separator) {
@@ -882,7 +882,7 @@ impl App {
                 p.filter.push_str(text);
                 p.idx = 0;
             }
-            _ => {}
+            Mode::Normal | Mode::ConfirmDelete | Mode::Files(_) | Mode::Help => {}
         }
     }
 
@@ -952,7 +952,7 @@ impl App {
                 let mut choices: Vec<Option<String>> = vec![None];
                 choices.extend(self.categories.iter().filter_map(|c| match c {
                     Category::Named(n) => Some(Some(n.clone())),
-                    _ => None,
+                    Category::All | Category::None => None,
                 }));
                 let i = choices
                     .iter()
@@ -1245,7 +1245,9 @@ impl App {
             KeyCode::Char(c @ ('+' | '=' | '-')) => {
                 let Some((_, row)) = sel else { return };
                 let ids = row.files();
-                let files = v.files.as_ref().expect("rows imply files");
+                let Some(files) = v.files.as_ref() else {
+                    return;
+                };
                 let current = ids.iter().map(|&i| files[i].priority).max().unwrap_or(1);
                 let level = FILE_PRIORITIES
                     .iter()

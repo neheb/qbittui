@@ -55,7 +55,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         Mode::Recategorize(p) => draw_picker(f, app, p),
         Mode::Tag(p) => draw_tag_picker(f, p),
         Mode::ConfirmDelete => draw_confirm(f, app),
-        _ => {}
+        Mode::Normal | Mode::Search | Mode::Files(_) => {}
     }
 }
 

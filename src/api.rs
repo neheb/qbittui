@@ -302,6 +302,7 @@ impl Client {
         self.request(|c| {
             let mut form = match &file {
                 Some((bytes, name)) => {
+                    #[expect(clippy::expect_used, reason = "constant MIME type always parses")]
                     let part = multipart::Part::bytes(bytes.clone())
                         .file_name(name.clone())
                         .mime_str("application/x-bittorrent")
